@@ -1,6 +1,7 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { initializeApp } from "firebase/app";
 import { getReactNativePersistence, initializeAuth } from "firebase/auth";
+import { getFirestore } from "firebase/firestore";
 
 // Your web app's Firebase configuration
 // For Firebase JS SDK v7.20.0 and later, measurementId is optional
@@ -15,8 +16,11 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
 
 // initializeAuth with React Native persistence (AsyncStorage)
-export const auth = initializeAuth(app, {
+const auth = initializeAuth(app, {
     persistence: getReactNativePersistence(AsyncStorage),
 });
+
+export { auth, db };

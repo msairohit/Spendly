@@ -25,6 +25,9 @@ import {
 } from "react-native";
 
 import DateTimePicker from "@react-native-community/datetimepicker"; // optional but recommended
+import { addDoc, collection, doc, serverTimestamp } from "firebase/firestore";
+import { useAuth } from "./AuthProvider";
+import { db } from "./firebase";
 // import * as ImagePicker from 'expo-image-picker'; // optional (Expo)
 // Use emojis as icons so no extra vector-icon dependency is required.
 
@@ -42,6 +45,7 @@ const TAGS = [
 ];
 
 export default function AddExpenseScreen() {
+    const { user } = useAuth();
     const [date, setDate] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showTimePicker, setShowTimePicker] = useState(false);
@@ -54,6 +58,7 @@ export default function AddExpenseScreen() {
     const [photoUri, setPhotoUri] = useState<string | null>(null);
 
     const [extrasOpen, setExtrasOpen] = useState(false);
+    const [saving, setSaving] = useState(false);
 
     const headerScale = useMemo(() => new Animated.Value(1), []);
 
@@ -93,33 +98,52 @@ export default function AddExpenseScreen() {
         alert("Implement pickImage using expo-image-picker or react-native-image-picker in your project.");
     }
 
-    function submitExpense() {
+    async function submitExpense() {
         // Validate minimal fields
         if (!description.trim() || !amount.trim()) {
             alert("Please enter description and amount.");
             return;
         }
+        if (!user?.email) {
+            alert("You must be signed in to save expenses.");
+            return;
+        }
+
         const expense = {
             date: date.toISOString(),
             description,
             amount: parseFloat(amount),
-            category,
-            paymentMethod,
+            category: category || "Uncategorized",
+            paymentMethod: paymentMethod || null,
             tags: selectedTags,
             photoUri,
+            createdAt: serverTimestamp(),
         };
-        // TODO: persist expense (context / API / async storage)
-        console.log("New expense", expense);
-        alert("Expense added (wire up persistence).");
-        // reset
-        setDescription("");
-        setAmount("");
-        setCategory(null);
-        setPaymentMethod(null);
-        setSelectedTags([]);
-        setPhotoUri(null);
-        setDate(new Date());
-        setExtrasOpen(false);
+
+        try {
+            setSaving(true);
+            // encode email to a safe doc id
+            const userKey = encodeURIComponent(user.email);
+            const userDocRef = doc(db, "users", userKey);
+            const expensesColRef = collection(userDocRef, "expenses");
+            await addDoc(expensesColRef, expense);
+
+            alert("Expense saved.");
+            // reset
+            setDescription("");
+            setAmount("");
+            setCategory(null);
+            setPaymentMethod(null);
+            setSelectedTags([]);
+            setPhotoUri(null);
+            setDate(new Date());
+            setExtrasOpen(false);
+        } catch (err: any) {
+            console.error("Save expense failed", err);
+            alert(err?.message || "Failed to save expense");
+        } finally {
+            setSaving(false);
+        }
     }
 
     const formattedDate = `${date.toLocaleDateString()} ${date.toLocaleTimeString([], {
@@ -247,8 +271,8 @@ export default function AddExpenseScreen() {
                     </View>
                 )}
 
-                <TouchableOpacity style={styles.addButton} onPress={submitExpense}>
-                    <Text style={styles.addButtonText}>➕ Add Expense</Text>
+                <TouchableOpacity style={[styles.addButton, saving && { opacity: 0.7 }]} onPress={submitExpense} disabled={saving}>
+                    <Text style={styles.addButtonText}>{saving ? "Saving..." : "➕ Add Expense"}</Text>
                 </TouchableOpacity>
             </View>
 
