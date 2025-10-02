@@ -1,0 +1,2 @@
+(done) create a new page to show all the expenses of the current logged in user in a super attractive modern interactive way with different viewing options like timeline, calender, monthly, weekly, date wise (sorted by time) 
+create a new page with all the possible features like dashboards, analysis, graphs etc options with the expense data of the loggedin user in a super attractive modern interactive way.

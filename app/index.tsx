@@ -64,6 +64,13 @@ export default function Index() {
                 <Text style={styles.btnText}>Add Expense</Text>
               </TouchableOpacity>
 
+              <TouchableOpacity
+                style={[styles.btn, { backgroundColor: "#2563eb" }]}
+                onPress={() => router.push("/ExpensesScreen")}
+              >
+                <Text style={styles.btnText}>Show expenses</Text>
+              </TouchableOpacity>
+
             </>
           ) : (
             <>
