@@ -20,6 +20,7 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
+    TouchableWithoutFeedback,
     View
 } from "react-native";
 import { useAuth } from "./AuthProvider";
@@ -28,8 +29,9 @@ import { db } from "./firebase";
 /**
  * ExpensesScreen (updated)
  * - Clicking an item opens a detail popup
- * - Calendar view: change month/year, click a date to go to that day's view
- * - Weekly/monthly views show human friendly date ranges
+ * - Clicking monthly/weekly aggregate opens timeline filtered to that period
+ * - Tapping outside modal or Android back closes modal
+ * - UI refreshed (cards, spacing, buttons)
  */
 
 type Expense = {
@@ -44,13 +46,12 @@ type Expense = {
     createdAt?: any;
 };
 
-const VIEW_MODES = ["timeline", "datewise", "monthly", "weekly", "calendar"] as const;
+const VIEW_MODES = ["timeline"/* , "datewise" */, "weekly", "monthly", "calendar"] as const;
 type ViewMode = typeof VIEW_MODES[number];
 
 function startOfWeek(d: Date) {
-    // ISO-like week (Mon start)
     const date = new Date(d);
-    const day = (date.getDay() + 6) % 7; // 0 = Monday
+    const day = (date.getDay() + 6) % 7;
     date.setDate(date.getDate() - day);
     date.setHours(0, 0, 0, 0);
     return date;
@@ -73,6 +74,12 @@ function formatShortDate(d: Date) {
 }
 function monthLabel(d: Date) {
     return d.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+}
+function toLocalISO(d: Date) {
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const dd = String(d.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
 }
 
 export default function ExpensesScreen() {
@@ -262,11 +269,7 @@ export default function ExpensesScreen() {
     }
     function onCalendarDatePress(day: number) {
         const dt = new Date(calYear, calMonth, day);
-        // Build a local YYYY-MM-DD string (avoid toISOString timezone shift)
-        const yyyy = dt.getFullYear();
-        const mm = String(dt.getMonth() + 1).padStart(2, "0");
-        const dd = String(dt.getDate()).padStart(2, "0");
-        const localDate = `${yyyy}-${mm}-${dd}`;
+        const localDate = toLocalISO(dt);
         setFilters((s) => ({ ...s, from: localDate, to: localDate }));
         setViewMode("datewise");
     }
@@ -354,13 +357,24 @@ export default function ExpensesScreen() {
                         {monthly.map((m) => {
                             const start = startOfMonth(m.monthDate);
                             const end = endOfMonth(m.monthDate);
+                            const startISO = toLocalISO(start);
+                            const endISO = toLocalISO(end);
                             return (
-                                <View key={m.key} style={styles.aggregateCard}>
-                                    <Text style={styles.aggregateTitle}>{monthLabel(m.monthDate)}</Text>
-                                    <Text style={styles.aggregateRange}>{formatShortDate(start)} - {formatShortDate(end)}</Text>
-                                    <Text style={styles.aggregateAmount}>₹{m.total.toFixed(2)}</Text>
-                                    <Text style={styles.muted}>{m.count} items</Text>
-                                </View>
+                                <TouchableOpacity
+                                    key={m.key}
+                                    activeOpacity={0.85}
+                                    onPress={() => {
+                                        setFilters((s) => ({ ...s, from: startISO, to: endISO }));
+                                        setViewMode("timeline");
+                                    }}
+                                >
+                                    <View style={styles.aggregateCard}>
+                                        <Text style={styles.aggregateTitle}>{monthLabel(m.monthDate)}</Text>
+                                        <Text style={styles.aggregateRange}>{formatShortDate(start)} - {formatShortDate(end)}</Text>
+                                        <Text style={styles.aggregateAmount}>₹{m.total.toFixed(2)}</Text>
+                                        <Text style={styles.muted}>{m.count} items — tap to view</Text>
+                                    </View>
+                                </TouchableOpacity>
                             );
                         })}
                         {monthly.length === 0 && <Text style={styles.emptyText}>No data for monthly view</Text>}
@@ -370,11 +384,22 @@ export default function ExpensesScreen() {
                 {viewMode === "weekly" && (
                     <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
                         {weekly.map((w) => (
-                            <View key={w.key} style={styles.aggregateCard}>
-                                <Text style={styles.aggregateTitle}>{formatShortDate(w.start)} — {formatShortDate(w.end)}</Text>
-                                <Text style={styles.aggregateAmount}>₹{w.total.toFixed(2)}</Text>
-                                <Text style={styles.muted}>{w.count} items</Text>
-                            </View>
+                            <TouchableOpacity
+                                key={w.key}
+                                activeOpacity={0.85}
+                                onPress={() => {
+                                    const startISO = toLocalISO(w.start);
+                                    const endISO = toLocalISO(w.end);
+                                    setFilters((s) => ({ ...s, from: startISO, to: endISO }));
+                                    setViewMode("timeline");
+                                }}
+                            >
+                                <View style={styles.aggregateCard}>
+                                    <Text style={styles.aggregateTitle}>{formatShortDate(w.start)} — {formatShortDate(w.end)}</Text>
+                                    <Text style={styles.aggregateAmount}>₹{w.total.toFixed(2)}</Text>
+                                    <Text style={styles.muted}>{w.count} items — tap to view</Text>
+                                </View>
+                            </TouchableOpacity>
                         ))}
                         {weekly.length === 0 && <Text style={styles.emptyText}>No data for weekly view</Text>}
                     </ScrollView>
@@ -393,71 +418,79 @@ export default function ExpensesScreen() {
                 )}
             </View>
 
-            <Modal visible={filterOpen} animationType="slide" transparent>
-                <View style={styles.modalBackdrop}>
-                    <View style={styles.modalCard}>
-                        <Text style={styles.modalTitle}>Filters</Text>
+            <Modal visible={filterOpen} animationType="slide" transparent onRequestClose={() => setFilterOpen(false)}>
+                <TouchableWithoutFeedback onPress={() => setFilterOpen(false)}>
+                    <View style={styles.modalBackdrop}>
+                        <TouchableWithoutFeedback>
+                            <View style={styles.modalCard}>
+                                <Text style={styles.modalTitle}>Filters</Text>
 
-                        <TextInput placeholder="Search description/tags..." style={styles.input} value={filters.search} onChangeText={(t) => setFilters((s) => ({ ...s, search: t }))} />
-                        <TextInput placeholder="Category (exact)" style={styles.input} value={filters.category} onChangeText={(t) => setFilters((s) => ({ ...s, category: t }))} />
-                        <TextInput placeholder="Payment method" style={styles.input} value={filters.paymentMethod} onChangeText={(t) => setFilters((s) => ({ ...s, paymentMethod: t }))} />
-                        <TextInput placeholder="Tag (single)" style={styles.input} value={filters.tag} onChangeText={(t) => setFilters((s) => ({ ...s, tag: t }))} />
-                        <TextInput placeholder="From (YYYY-MM-DD)" style={styles.input} value={filters.from} onChangeText={(t) => setFilters((s) => ({ ...s, from: t }))} />
-                        <TextInput placeholder="To (YYYY-MM-DD)" style={styles.input} value={filters.to} onChangeText={(t) => setFilters((s) => ({ ...s, to: t }))} />
+                                <TextInput placeholder="Search description/tags..." style={styles.input} value={filters.search} onChangeText={(t) => setFilters((s) => ({ ...s, search: t }))} />
+                                <TextInput placeholder="Category (exact)" style={styles.input} value={filters.category} onChangeText={(t) => setFilters((s) => ({ ...s, category: t }))} />
+                                <TextInput placeholder="Payment method" style={styles.input} value={filters.paymentMethod} onChangeText={(t) => setFilters((s) => ({ ...s, paymentMethod: t }))} />
+                                <TextInput placeholder="Tag (single)" style={styles.input} value={filters.tag} onChangeText={(t) => setFilters((s) => ({ ...s, tag: t }))} />
+                                <TextInput placeholder="From (YYYY-MM-DD)" style={styles.input} value={filters.from} onChangeText={(t) => setFilters((s) => ({ ...s, from: t }))} />
+                                <TextInput placeholder="To (YYYY-MM-DD)" style={styles.input} value={filters.to} onChangeText={(t) => setFilters((s) => ({ ...s, to: t }))} />
 
-                        <View style={{ flexDirection: "row", marginTop: 12 }}>
-                            <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={() => setFilterOpen(false)}>
-                                <Text style={styles.primaryBtnText}>Apply</Text>
-                            </TouchableOpacity>
-                            <TouchableOpacity style={[styles.secondaryBtn, { marginLeft: 8 }]} onPress={() => { clearFilters(); }}>
-                                <Text style={styles.secondaryBtnText}>Clear</Text>
-                            </TouchableOpacity>
-                        </View>
+                                <View style={{ flexDirection: "row", marginTop: 12 }}>
+                                    <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={() => setFilterOpen(false)}>
+                                        <Text style={styles.primaryBtnText}>Apply</Text>
+                                    </TouchableOpacity>
+                                    <TouchableOpacity style={[styles.secondaryBtn, { marginLeft: 8 }]} onPress={() => { clearFilters(); }}>
+                                        <Text style={styles.secondaryBtnText}>Clear</Text>
+                                    </TouchableOpacity>
+                                </View>
+                            </View>
+                        </TouchableWithoutFeedback>
                     </View>
-                </View>
+                </TouchableWithoutFeedback>
             </Modal>
 
             {/* expense detail modal */}
-            <Modal visible={!!selectedExpense} transparent animationType="slide">
-                <View style={styles.modalBackdrop}>
-                    <View style={styles.detailCard}>
-                        <Text style={styles.modalTitle}>Expense details</Text>
-                        {selectedExpense && (
-                            <>
-                                <Text style={styles.detailAmount}>₹{selectedExpense.amount.toFixed(2)}</Text>
-                                <Text style={styles.detailWhen}>{selectedExpense.date.toLocaleString()}</Text>
-                                <Text style={styles.detailLabel}>Description</Text>
-                                <Text style={styles.detailText}>{selectedExpense.description}</Text>
+            <Modal visible={!!selectedExpense} transparent animationType="slide" onRequestClose={() => setSelectedExpense(null)}>
+                <TouchableWithoutFeedback onPress={() => setSelectedExpense(null)}>
+                    <View style={styles.modalBackdrop}>
+                        <TouchableWithoutFeedback>
+                            <View style={styles.detailCard}>
+                                <Text style={styles.modalTitle}>Expense details</Text>
+                                {selectedExpense && (
+                                    <>
+                                        <Text style={styles.detailAmount}>₹{selectedExpense.amount.toFixed(2)}</Text>
+                                        <Text style={styles.detailWhen}>{selectedExpense.date.toLocaleString()}</Text>
+                                        <Text style={styles.detailLabel}>Description</Text>
+                                        <Text style={styles.detailText}>{selectedExpense.description}</Text>
 
-                                <View style={{ flexDirection: "row", marginTop: 8 }}>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={styles.detailLabel}>Category</Text>
-                                        <Text style={styles.detailText}>{selectedExpense.category || "—"}</Text>
-                                    </View>
-                                    <View style={{ flex: 1 }}>
-                                        <Text style={styles.detailLabel}>Payment</Text>
-                                        <Text style={styles.detailText}>{selectedExpense.paymentMethod || "—"}</Text>
-                                    </View>
-                                </View>
+                                        <View style={{ flexDirection: "row", marginTop: 8 }}>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.detailLabel}>Category</Text>
+                                                <Text style={styles.detailText}>{selectedExpense.category || "—"}</Text>
+                                            </View>
+                                            <View style={{ flex: 1 }}>
+                                                <Text style={styles.detailLabel}>Payment</Text>
+                                                <Text style={styles.detailText}>{selectedExpense.paymentMethod || "—"}</Text>
+                                            </View>
+                                        </View>
 
-                                <Text style={[styles.detailLabel, { marginTop: 8 }]}>Tags</Text>
-                                <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 6 }}>
-                                    {(selectedExpense.tags || []).map((t) => (
-                                        <View key={t} style={styles.tagChip}><Text style={styles.tagText}>{t}</Text></View>
-                                    ))}
-                                </View>
+                                        <Text style={[styles.detailLabel, { marginTop: 8 }]}>Tags</Text>
+                                        <View style={{ flexDirection: "row", flexWrap: "wrap", marginTop: 6 }}>
+                                            {(selectedExpense.tags || []).map((t) => (
+                                                <View key={t} style={styles.tagChip}><Text style={styles.tagText}>{t}</Text></View>
+                                            ))}
+                                        </View>
 
-                                {selectedExpense.photoUri ? (
-                                    <Image source={{ uri: selectedExpense.photoUri }} style={styles.detailImage} />
-                                ) : null}
+                                        {selectedExpense.photoUri ? (
+                                            <Image source={{ uri: selectedExpense.photoUri }} style={styles.detailImage} />
+                                        ) : null}
 
-                                <TouchableOpacity style={[styles.primaryBtn, { marginTop: 12 }]} onPress={() => setSelectedExpense(null)}>
-                                    <Text style={styles.primaryBtnText}>Close</Text>
-                                </TouchableOpacity>
-                            </>
-                        )}
+                                        <TouchableOpacity style={[styles.primaryBtn, { marginTop: 12 }]} onPress={() => setSelectedExpense(null)}>
+                                            <Text style={styles.primaryBtnText}>Close</Text>
+                                        </TouchableOpacity>
+                                    </>
+                                )}
+                            </View>
+                        </TouchableWithoutFeedback>
                     </View>
-                </View>
+                </TouchableWithoutFeedback>
             </Modal>
         </SafeAreaView>
     );
@@ -522,20 +555,25 @@ const styles = StyleSheet.create({
     safe: { flex: 1, backgroundColor: "#0f172a" },
     center: { justifyContent: "center", alignItems: "center" },
     header: {
-        paddingTop: Platform.OS === "ios" ? 36 : 16,
+        paddingTop: Platform.OS === "ios" ? 44 : 20,
         paddingHorizontal: 18,
-        paddingBottom: 12,
+        paddingBottom: 14,
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
         backgroundColor: "#06202a",
+        borderBottomColor: "rgba(255,255,255,0.04)",
+        borderBottomWidth: 1,
+        shadowColor: "#000",
+        shadowOpacity: 0.12,
+        shadowRadius: 12,
     },
-    title: { color: "#fff", fontSize: 22, fontWeight: "800" },
+    title: { color: "#fff", fontSize: 22, fontWeight: "900" },
     headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
-    emailSmall: { color: "#9ca3af", marginRight: 8 },
+    emailSmall: { color: "#cfeeea", marginRight: 8, fontSize: 12 },
     pill: {
         backgroundColor: "#083344",
-        paddingHorizontal: 10,
+        paddingHorizontal: 12,
         paddingVertical: 8,
         borderRadius: 999,
     },
@@ -549,9 +587,10 @@ const styles = StyleSheet.create({
     },
     modeBtn: {
         paddingVertical: 8,
-        paddingHorizontal: 10,
+        paddingHorizontal: 12,
         borderRadius: 999,
         backgroundColor: "#04202a",
+        marginRight: 8,
     },
     modeBtnActive: { backgroundColor: "#06b6d4" },
     modeText: { color: "#9ca3af", fontWeight: "700", fontSize: 12 },
@@ -563,7 +602,7 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: 18,
         borderTopRightRadius: 18,
         marginTop: -6,
-        padding: 12,
+        padding: 14,
     },
 
     sectionHeader: {
@@ -574,31 +613,36 @@ const styles = StyleSheet.create({
 
     rowCard: {
         backgroundColor: "#fff",
-        borderRadius: 12,
-        padding: 12,
+        borderRadius: 14,
+        padding: 14,
         flexDirection: "row",
         alignItems: "center",
-        elevation: 2,
+        elevation: 3,
         shadowColor: "#000",
         shadowOpacity: 0.06,
-        marginBottom: 6,
+        shadowRadius: 8,
+        marginBottom: 8,
     },
     rowLeft: { width: 110, alignItems: "flex-start", marginRight: 12 },
     rowRight: { flex: 1 },
     amount: { fontSize: 18, fontWeight: "900", color: "#0f172a" },
-    desc: { fontWeight: "700", color: "#0f172a" },
+    desc: { fontWeight: "800", color: "#0f172a" },
     small: { color: "#6b7280", fontSize: 12 },
     muted: { color: "#6b7280", fontSize: 12, marginTop: 4 },
 
     aggregateCard: {
         backgroundColor: "#fff",
         padding: 16,
-        borderRadius: 12,
-        marginBottom: 10,
+        borderRadius: 14,
+        marginBottom: 12,
+        elevation: 3,
+        shadowColor: "#000",
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
     },
-    aggregateTitle: { fontWeight: "800" },
-    aggregateRange: { color: "#6b7280", marginTop: 4 },
-    aggregateAmount: { fontSize: 18, fontWeight: "900", color: "#059669", marginTop: 6 },
+    aggregateTitle: { fontWeight: "900", color: "#0f172a" },
+    aggregateRange: { color: "#6b7280", marginTop: 6 },
+    aggregateAmount: { fontSize: 18, fontWeight: "900", color: "#059669", marginTop: 10 },
 
     emptyText: { textAlign: "center", color: "#6b7280", padding: 24 },
 
@@ -613,39 +657,37 @@ const styles = StyleSheet.create({
         borderTopLeftRadius: 16,
         borderTopRightRadius: 16,
     },
-    modalTitle: { fontSize: 18, fontWeight: "800", marginBottom: 12 },
-    input: { backgroundColor: "#f3f4f6", padding: 10, borderRadius: 10, marginBottom: 8 },
+    modalTitle: { fontSize: 18, fontWeight: "900", marginBottom: 12, color: "#0f172a" },
+    input: { backgroundColor: "#f3f4f6", padding: 12, borderRadius: 12, marginBottom: 8 },
 
     primaryBtn: {
         backgroundColor: "#06b6d4",
         padding: 12,
-        borderRadius: 10,
+        borderRadius: 12,
         alignItems: "center",
     },
-    primaryBtnText: { color: "#fff", fontWeight: "800" },
+    primaryBtnText: { color: "#fff", fontWeight: "900" },
     secondaryBtn: {
         backgroundColor: "#fff",
         borderColor: "#e5e7eb",
         borderWidth: 1,
         padding: 12,
-        borderRadius: 10,
+        borderRadius: 12,
         alignItems: "center",
     },
     secondaryBtnText: { color: "#374151", fontWeight: "700" },
 
     calendarHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 12, marginBottom: 8 },
     navBtn: { padding: 8 },
-    navText: { color: "#0f172a", fontWeight: "800" },
-    calendarTitle: { color: "#0f172a", fontWeight: "800", fontSize: 16 },
+    navText: { color: "#0f172a", fontWeight: "900" },
+    calendarTitle: { color: "#0f172a", fontWeight: "900", fontSize: 16 },
     hint: { color: "#6b7280", textAlign: "center", marginVertical: 10 },
 
-    // row contains 7 flexible cells
     calendarRow: {
         flexDirection: "row",
         marginBottom: 8,
     },
 
-    // each visible cell: flexible, has margin and minimum height so content is visible
     calendarCell: {
         flex: 1,
         backgroundColor: "#fff",
@@ -669,7 +711,6 @@ const styles = StyleSheet.create({
         flex: 1,
         marginHorizontal: 4,
         minHeight: 72,
-        // keep background transparent so it looks empty, but reserves space
     },
     calendarDate: { fontWeight: "800", color: "#0f172a", fontSize: 14 },
     calendarAmount: { color: "#059669", marginTop: 6, fontSize: 12 },
@@ -679,7 +720,7 @@ const styles = StyleSheet.create({
         backgroundColor: "#fff",
         padding: 16,
         margin: 18,
-        borderRadius: 12,
+        borderRadius: 14,
     },
     detailAmount: { fontSize: 22, fontWeight: "900", color: "#0f172a", marginTop: 4 },
     detailWhen: { color: "#6b7280", marginTop: 4 },

@@ -6,3 +6,7 @@ for analyticsadvancedScreen, add filter for start and end dates and show page de
 and also add any other dashboards which can be useful with drill down features.
 and also make the drill down screens a bit more modern and attractive and when cliked on outside the modal or back button the modal should close
 add manage subscriptions tab as well.
+
+for generating release apk and install in mobile.
+npx expo prebuild
+npx expo run:android --variant release
