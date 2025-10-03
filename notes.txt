@@ -1,2 +1,7 @@
 (done) create a new page to show all the expenses of the current logged in user in a super attractive modern interactive way with different viewing options like timeline, calender, monthly, weekly, date wise (sorted by time) 
 create a new page with all the possible features like dashboards, analysis, graphs etc options with the expense data of the loggedin user in a super attractive modern interactive way.
+(not needed, will be covered in calender view.) Update expense screen to show only one main view with dropdown options like daily, weekly, monthly, yearly, date and date range options. and based on that selected option display in that main view. and every option should be able change / move to next or previous week/month/year etc.
+Update expense screen when clicked on weekly or monthly entry, it should go to timeline and show that months or weeks transactions accordingly. tapping outside the modal or back button should close the modal. Update the UI to be more modern and attractive.
+for analyticsadvancedScreen, add filter for start and end dates and show page details based on that filter. default to current month.
+and also add any other dashboards which can be useful with drill down features.
+and also make the drill down screens a bit more modern and attractive and when cliked on outside the modal or back button the modal should close

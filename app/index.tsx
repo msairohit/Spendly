@@ -71,6 +71,20 @@ export default function Index() {
                 <Text style={styles.btnText}>Show expenses</Text>
               </TouchableOpacity>
 
+              <TouchableOpacity
+                style={[styles.btn, { backgroundColor: "#f59e0b" }]}
+                onPress={() => router.push("/AnalyticsScreen")}
+              >
+                <Text style={styles.btnText}>View Dashboard</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.btn, { backgroundColor: "#6b7280" }]}
+                onPress={() => router.push("/AnalyticsAdvancedScreen")}
+              >
+                <Text style={styles.btnText}>Advanced Analytics</Text>
+              </TouchableOpacity>
+
             </>
           ) : (
             <>
@@ -125,7 +139,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingTop: -20,
     backgroundColor: "#f8fafc",
     marginTop: -80,
     borderTopLeftRadius: 22,
