@@ -5,3 +5,4 @@ Update expense screen when clicked on weekly or monthly entry, it should go to t
 for analyticsadvancedScreen, add filter for start and end dates and show page details based on that filter. default to current month.
 and also add any other dashboards which can be useful with drill down features.
 and also make the drill down screens a bit more modern and attractive and when cliked on outside the modal or back button the modal should close
+add manage subscriptions tab as well.
