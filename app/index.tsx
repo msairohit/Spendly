@@ -85,6 +85,13 @@ export default function Index() {
                 <Text style={styles.btnText}>Advanced Analytics</Text>
               </TouchableOpacity>
 
+              <TouchableOpacity
+                style={[styles.btn, { backgroundColor: "#6b7280" }]}
+                onPress={() => router.push("/MessagesInboxScreen")}
+              >
+                <Text style={styles.btnText}>Add expense from messages</Text>
+              </TouchableOpacity>
+
             </>
           ) : (
             <>

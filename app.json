@@ -20,7 +20,10 @@
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.sai_rohit.Spendly"
+      "package": "com.sai_rohit.Spendly",
+      "permissions": [
+        "android.permission.READ_SMS"
+      ]
     },
     "web": {
       "output": "static",
