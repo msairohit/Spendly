@@ -25,12 +25,14 @@ import {
 } from "react-native";
 
 import DateTimePicker from "@react-native-community/datetimepicker"; // optional but recommended
-import { addDoc, collection, doc, serverTimestamp } from "firebase/firestore";
+import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { useAuth } from "./AuthProvider";
 import { db } from "./firebase";
 // import * as ImagePicker from 'expo-image-picker'; // optional (Expo)
 // Use emojis as icons so no extra vector-icon dependency is required.
 
+// NEW: navigation helper to go back after save
+import { router } from "expo-router";
 // NEW imports for navigation / prefill support
 import { useRoute } from "@react-navigation/native";
 import { useSearchParams } from "expo-router";
@@ -50,6 +52,7 @@ const TAGS = [
 
 export default function AddExpenseScreen() {
     const { user } = useAuth();
+    const [editingId, setEditingId] = useState<string | null>(null);
     const [date, setDate] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
     const [showTimePicker, setShowTimePicker] = useState(false);
@@ -68,44 +71,90 @@ export default function AddExpenseScreen() {
 
     // --- NEW: read prefill from navigation params (react-navigation) or expo-router query param ---
     const route: any = useRoute?.() ?? {};
-    const { prefill: prefillQuery } = useSearchParams?.() as { prefill?: string } ?? {};
+    const searchParams = useSearchParams?.() ?? {};
+    const prefillQuery = (searchParams as any).prefill as string | undefined;
 
     useEffect(() => {
-        // try react-navigation param first (object), then expo-router encoded JSON in query
-        try {
-            const navPrefill = route?.params?.prefill;
-            let prefill: any = null;
-            if (navPrefill) {
-                prefill = navPrefill;
-            } else if (prefillQuery) {
+        let mounted = true;
+
+        async function resolveStringPrefill(raw: string) {
+            // try JSON.parse, decodeURIComponent + parse, up to a couple of attempts
+            let s = String(raw);
+            for (let i = 0; i < 3; i++) {
                 try {
-                    prefill = JSON.parse(decodeURIComponent(prefillQuery));
+                    return JSON.parse(s);
                 } catch (e) {
-                    // fallback: maybe plain stringified object
-                    try {
-                        prefill = JSON.parse(prefillQuery);
-                    } catch { }
+                    try { s = decodeURIComponent(s); } catch { break; }
                 }
             }
-            if (prefill) {
-                if (typeof prefill.amount !== "undefined" && prefill.amount !== null) setAmount(String(prefill.amount));
-                if (prefill.date) {
+            // final attempt
+            try { return JSON.parse(raw); } catch { return null; }
+        }
+
+        (async () => {
+            try {
+                const navPrefill = route?.params?.prefill;
+                let rawPrefill: any = null;
+                if (navPrefill) rawPrefill = navPrefill;
+                else if (prefillQuery) rawPrefill = await resolveStringPrefill(prefillQuery);
+
+                if (!rawPrefill) return;
+
+                // If prefill is object already, use it; if string, we already decoded above.
+                const prefill = typeof rawPrefill === "object" ? rawPrefill : rawPrefill;
+
+                // If editing by id, always attempt to fetch latest doc and merge with prefill
+                if (prefill?.id && user?.email) {
+                    try {
+                        const userKey = encodeURIComponent(user.email);
+                        const expRef = doc(db, "users", userKey, "expenses", String(prefill.id));
+                        const snap = await getDoc(expRef);
+                        if (snap.exists()) {
+                            const data: any = snap.data();
+                            // merge doc data with prefill (prefill overrides doc)
+                            const merged = { ...data, ...prefill };
+
+                            if (!mounted) return;
+                            setEditingId(String(prefill.id));
+                            if (typeof merged.amount !== "undefined") setAmount(String(merged.amount));
+                            if (merged.date) {
+                                const d = typeof merged.date === "string" ? new Date(merged.date) : (merged.date?.toDate ? merged.date.toDate() : new Date(merged.date));
+                                if (!isNaN(d.getTime())) setDate(d);
+                            }
+                            if (merged.description) setDescription(String(merged.description));
+                            if (Array.isArray(merged.tags)) setSelectedTags(merged.tags);
+                            if (merged.category) setCategory(merged.category);
+                            if (merged.paymentMethod) setPaymentMethod(merged.paymentMethod);
+                            if (merged.photoUri) setPhotoUri(merged.photoUri);
+                            setExtrasOpen(true);
+                            return;
+                        }
+                    } catch (e) {
+                        console.warn("Failed to load expense doc for editing", e);
+                        // fallthrough to apply any available prefill fields below
+                    }
+                }
+
+                // Apply simple prefill if no id/doc or fetch failed
+                if (prefill?.id && mounted) setEditingId(String(prefill.id));
+                if (typeof prefill?.amount !== "undefined" && prefill?.amount !== null && mounted) setAmount(String(prefill.amount));
+                if (prefill?.date && mounted) {
                     const d = new Date(prefill.date);
                     if (!isNaN(d.getTime())) setDate(d);
                 }
-                if (prefill.description) setDescription(String(prefill.description));
-                if (Array.isArray(prefill.tags)) setSelectedTags(prefill.tags);
-                if (prefill.category) setCategory(prefill.category);
-                if (prefill.paymentMethod) setPaymentMethod(prefill.paymentMethod);
-                if (prefill.photoUri) setPhotoUri(prefill.photoUri);
-                // show extras so user can edit category/tags quickly
-                setExtrasOpen(true);
+                if (prefill?.description && mounted) setDescription(String(prefill.description));
+                if (Array.isArray(prefill?.tags) && mounted) setSelectedTags(prefill.tags);
+                if (prefill?.category && mounted) setCategory(prefill.category);
+                if (prefill?.paymentMethod && mounted) setPaymentMethod(prefill.paymentMethod);
+                if (prefill?.photoUri && mounted) setPhotoUri(prefill.photoUri);
+                if (mounted) setExtrasOpen(true);
+            } catch (err) {
+                console.warn("prefill parse/load error", err);
             }
-        } catch (err) {
-            // ignore parse/navigation errors
-            console.warn("prefill parse error", err);
-        }
-    }, [route?.params, prefillQuery]);
+        })();
+
+        return () => { mounted = false; };
+    }, [route?.params?.prefill, prefillQuery, user?.email]);
 
     function toggleExtras() {
         setExtrasOpen((s) => !s);
@@ -166,7 +215,9 @@ export default function AddExpenseScreen() {
             paymentMethod: paymentMethod || null,
             tags: selectedTags,
             photoUri,
-            createdAt: serverTimestamp(),
+            // createdAt only when creating new doc; updatedAt also set for updates
+            createdAt: editingId ? undefined : serverTimestamp(),
+            updatedAt: serverTimestamp(),
         };
 
         try {
@@ -175,7 +226,31 @@ export default function AddExpenseScreen() {
             const userKey = encodeURIComponent(user.email);
             const userDocRef = doc(db, "users", userKey);
             const expensesColRef = collection(userDocRef, "expenses");
-            await addDoc(expensesColRef, expense);
+            let savedId: string | null = null;
+            if (editingId) {
+                // update existing expense
+                const expRef = doc(db, "users", userKey, "expenses", editingId);
+                // remove undefined createdAt so update doesn't clear it
+                const { createdAt: _c, ...updatePayload } = expense as any;
+                await updateDoc(expRef, updatePayload);
+                savedId = editingId;
+            } else {
+                const docRef = await addDoc(expensesColRef, expense);
+                savedId = docRef.id;
+            }
+
+            // If this screen was opened from a message (prefill.messageId), mark that message as processed in Firestore
+            try {
+                const prefillParam = route?.params?.prefill ?? (prefillQuery ? JSON.parse(decodeURIComponent(prefillQuery)) : null);
+                const messageId = prefillParam?.messageId;
+                if (messageId) {
+                    const msgRef = doc(db, "users", userKey, "messages", String(messageId));
+                    await updateDoc(msgRef, { processed: true, status: "added", expenseId: savedId });
+                }
+            } catch (msgErr) {
+                // non-fatal
+                console.warn("mark message as processed error", msgErr);
+            }
 
             alert("Expense saved.");
             // reset
@@ -187,6 +262,8 @@ export default function AddExpenseScreen() {
             setPhotoUri(null);
             setDate(new Date());
             setExtrasOpen(false);
+            // go back to previous screen
+            router.back();
         } catch (err: any) {
             console.error("Save expense failed", err);
             alert(err?.message || "Failed to save expense");
@@ -225,7 +302,8 @@ export default function AddExpenseScreen() {
             {/* Prefill notice */}
             {(route?.params?.prefill || prefillQuery) ? (
                 <View style={styles.prefillBanner}>
-                    <Text style={styles.prefillText}>Prefilled from message — edit fields before saving</Text>
+                    <Text style={styles.prefillText}>Edit Expense!</Text>
+                    <Text style={styles.prefillText}>Prefilled data, edit fields before saving</Text>
                 </View>
             ) : null}
 
@@ -328,7 +406,7 @@ export default function AddExpenseScreen() {
                 )}
 
                 <TouchableOpacity style={[styles.addButton, saving && { opacity: 0.7 }]} onPress={submitExpense} disabled={saving}>
-                    <Text style={styles.addButtonText}>{saving ? "Saving..." : "➕ Add Expense"}</Text>
+                    <Text style={styles.addButtonText}>{saving ? "Saving..." : ((route?.params?.prefill || prefillQuery) ? "Edit Expense" : "➕ Add Expense")}</Text>
                 </TouchableOpacity>
             </View>
 

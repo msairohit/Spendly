@@ -1,14 +1,17 @@
+import { useNavigation } from "@react-navigation/native";
 import { router } from "expo-router";
 import {
     collection,
+    deleteDoc,
     doc,
     onSnapshot,
     orderBy,
-    query,
+    query
 } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
 import {
     ActivityIndicator,
+    Alert,
     FlatList,
     Image,
     Modal,
@@ -83,6 +86,8 @@ function toLocalISO(d: Date) {
 }
 
 export default function ExpensesScreen() {
+
+    const nav: any = useNavigation(); // try react-navigation first
     const { user, loading: authLoading } = useAuth();
     const [loading, setLoading] = useState(true);
     const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -272,6 +277,62 @@ export default function ExpensesScreen() {
         const localDate = toLocalISO(dt);
         setFilters((s) => ({ ...s, from: localDate, to: localDate }));
         setViewMode("datewise");
+    }
+
+    // Edit -> open AddExpense screen with prefilled data (include id so AddExpense can update)
+    function onEditExpense(exp: Expense) {
+        const prefill = {
+            id: exp.id,
+            amount: exp.amount,
+            date: exp.date.toISOString(),
+            description: exp.description,
+            category: exp.category,
+            paymentMethod: exp.paymentMethod,
+            tags: exp.tags || [],
+            photoUri: exp.photoUri || null,
+        };
+        // Try react-navigation first (passes prefill as object)
+        try {
+            if (nav && typeof nav.navigate === "function") {
+                nav.navigate("AddExpenseScreen", { prefill });
+                setSelectedExpense(null);
+                return;
+            }
+        } catch (e) {
+            console.warn("nav.navigate failed, falling back to router", e);
+        }
+
+        // Fallback: expo-router push with encoded prefill (string query)
+        try {
+            const encoded = encodeURIComponent(JSON.stringify(prefill));
+            router.push(`/AddExpenseScreen?prefill=${encoded}`);
+            setSelectedExpense(null);
+        } catch (e) {
+            console.warn("router.push failed", e);
+        }
+    }
+
+    // Delete with confirmation
+    async function onDeleteExpense(exp: Expense) {
+        if (!user?.email) return;
+        Alert.alert("Delete expense", "Are you sure you want to delete this expense?", [
+            { text: "Cancel", style: "cancel" },
+            {
+                text: "Delete",
+                style: "destructive",
+                onPress: async () => {
+                    try {
+                        const userKey = encodeURIComponent(user.email);
+                        const expRef = doc(db, "users", userKey, "expenses", exp.id);
+                        await deleteDoc(expRef);
+                        setSelectedExpense(null);
+                    } catch (err) {
+                        console.warn("delete expense failed", err);
+                        Alert.alert("Error", "Failed to delete expense");
+                    }
+                },
+            },
+        ]);
     }
 
     return (
@@ -482,9 +543,19 @@ export default function ExpensesScreen() {
                                             <Image source={{ uri: selectedExpense.photoUri }} style={styles.detailImage} />
                                         ) : null}
 
-                                        <TouchableOpacity style={[styles.primaryBtn, { marginTop: 12 }]} onPress={() => setSelectedExpense(null)}>
-                                            <Text style={styles.primaryBtnText}>Close</Text>
-                                        </TouchableOpacity>
+                                        <View style={{ flexDirection: "row", marginTop: 12, justifyContent: "space-between" }}>
+                                            <TouchableOpacity style={[styles.primaryBtn, styles.editBtn]} onPress={() => onEditExpense(selectedExpense)}>
+                                                <Text style={styles.primaryBtnText}>Edit</Text>
+                                            </TouchableOpacity>
+
+                                            <TouchableOpacity style={[styles.secondaryBtn, styles.deleteBtn]} onPress={() => onDeleteExpense(selectedExpense)}>
+                                                <Text style={[styles.secondaryBtnText, { color: "#b91c1c" }]}>Delete</Text>
+                                            </TouchableOpacity>
+
+                                            <TouchableOpacity style={[styles.primaryBtn, { backgroundColor: "#94a3b8", flex: 1, marginLeft: 8 }]} onPress={() => setSelectedExpense(null)}>
+                                                <Text style={styles.primaryBtnText}>Close</Text>
+                                            </TouchableOpacity>
+                                        </View>
                                     </>
                                 )}
                             </View>
@@ -676,6 +747,8 @@ const styles = StyleSheet.create({
         alignItems: "center",
     },
     secondaryBtnText: { color: "#374151", fontWeight: "700" },
+    editBtn: { backgroundColor: "#06b6d4", flex: 1, marginRight: 8 },
+    deleteBtn: { backgroundColor: "#fff", borderColor: "#fee2e2", borderWidth: 1, paddingVertical: 12, paddingHorizontal: 12, borderRadius: 12 },
 
     calendarHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingHorizontal: 12, marginBottom: 8 },
     navBtn: { padding: 8 },
