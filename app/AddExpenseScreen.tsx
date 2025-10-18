@@ -10,7 +10,7 @@
  * - If you don't have those, the UI will still work; replace pickImage / native pickers with your preferred implementations.
  */
 
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
     Animated,
     Image,
@@ -30,6 +30,10 @@ import { useAuth } from "./AuthProvider";
 import { db } from "./firebase";
 // import * as ImagePicker from 'expo-image-picker'; // optional (Expo)
 // Use emojis as icons so no extra vector-icon dependency is required.
+
+// NEW imports for navigation / prefill support
+import { useRoute } from "@react-navigation/native";
+import { useSearchParams } from "expo-router";
 
 const CATEGORIES = ["Food", "Transport", "Rent", "Entertainment", "Bills", "Health", "Other"];
 const PAYMENT_METHODS = ["Cash", "Card", "UPI", "Bank Transfer", "Wallet"];
@@ -62,6 +66,47 @@ export default function AddExpenseScreen() {
 
     const headerScale = useMemo(() => new Animated.Value(1), []);
 
+    // --- NEW: read prefill from navigation params (react-navigation) or expo-router query param ---
+    const route: any = useRoute?.() ?? {};
+    const { prefill: prefillQuery } = useSearchParams?.() as { prefill?: string } ?? {};
+
+    useEffect(() => {
+        // try react-navigation param first (object), then expo-router encoded JSON in query
+        try {
+            const navPrefill = route?.params?.prefill;
+            let prefill: any = null;
+            if (navPrefill) {
+                prefill = navPrefill;
+            } else if (prefillQuery) {
+                try {
+                    prefill = JSON.parse(decodeURIComponent(prefillQuery));
+                } catch (e) {
+                    // fallback: maybe plain stringified object
+                    try {
+                        prefill = JSON.parse(prefillQuery);
+                    } catch { }
+                }
+            }
+            if (prefill) {
+                if (typeof prefill.amount !== "undefined" && prefill.amount !== null) setAmount(String(prefill.amount));
+                if (prefill.date) {
+                    const d = new Date(prefill.date);
+                    if (!isNaN(d.getTime())) setDate(d);
+                }
+                if (prefill.description) setDescription(String(prefill.description));
+                if (Array.isArray(prefill.tags)) setSelectedTags(prefill.tags);
+                if (prefill.category) setCategory(prefill.category);
+                if (prefill.paymentMethod) setPaymentMethod(prefill.paymentMethod);
+                if (prefill.photoUri) setPhotoUri(prefill.photoUri);
+                // show extras so user can edit category/tags quickly
+                setExtrasOpen(true);
+            }
+        } catch (err) {
+            // ignore parse/navigation errors
+            console.warn("prefill parse error", err);
+        }
+    }, [route?.params, prefillQuery]);
+
     function toggleExtras() {
         setExtrasOpen((s) => !s);
         Animated.sequence([
@@ -72,7 +117,12 @@ export default function AddExpenseScreen() {
 
     function onChangeDate(event: any, selected?: Date) {
         setShowDatePicker(false);
-        if (selected) setDate((prev) => new Date(selected.setHours(prev.getHours(), prev.getMinutes())));
+        if (selected) setDate((prev) => {
+            // Keep the previous time if only date was changed
+            const next = new Date(selected);
+            next.setHours(prev.getHours(), prev.getMinutes());
+            return next;
+        });
     }
 
     function onChangeTime(event: any, selected?: Date) {
@@ -93,8 +143,7 @@ export default function AddExpenseScreen() {
         // Example with expo-image-picker:
         // const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.6 });
         // if (!result.cancelled) setPhotoUri(result.uri);
-        // For now set a temporary placeholder uri (developer should replace).
-        setPhotoUri(null);
+        // For now leave as-is.
         alert("Implement pickImage using expo-image-picker or react-native-image-picker in your project.");
     }
 
@@ -172,6 +221,13 @@ export default function AddExpenseScreen() {
                     </View>
                 </View>
             </Animated.View>
+
+            {/* Prefill notice */}
+            {(route?.params?.prefill || prefillQuery) ? (
+                <View style={styles.prefillBanner}>
+                    <Text style={styles.prefillText}>Prefilled from message — edit fields before saving</Text>
+                </View>
+            ) : null}
 
             <View style={styles.card}>
                 <Text style={styles.sectionTitle}>Primary Details</Text>
@@ -527,5 +583,17 @@ const styles = StyleSheet.create({
     quickText: {
         color: "#374151",
         fontWeight: "600",
+    },
+    prefillBanner: {
+        backgroundColor: "#e0f7fa",
+        borderLeftWidth: 4,
+        borderColor: "#00796b",
+        padding: 12,
+        borderRadius: 12,
+        marginBottom: 16,
+    },
+    prefillText: {
+        color: "#00796b",
+        fontWeight: "500",
     },
 });

@@ -16,12 +16,16 @@ import {
 import SmsAndroid from "react-native-get-sms-android";
 import { useAuth } from "./AuthProvider";
 import { db } from "./firebase";
+// NEW: navigation helpers
+import { useNavigation } from "@react-navigation/native";
+import { router } from "expo-router";
 
 /**
  * MessagesInboxScreen
  * - Android only: reads device SMS inbox
  * - Parses messages to detect amount/date/desc
- * - Shows Add expense / Ignore buttons
+ * - Shows Add expense / Add detailed expense / Ignore buttons
+ * - "Add detailed expense" opens AddExpense screen with prefilled values
  * - Adds expense to Firestore under users/{encodedEmail}/expenses
  * - Stores ignored message signatures in AsyncStorage to avoid repeat prompts
  */
@@ -48,6 +52,7 @@ export default function MessagesInboxScreen() {
     const [smsList, setSmsList] = useState<SmsItem[]>([]);
     const [ignored, setIgnored] = useState<Record<string, true>>({});
     const [workingId, setWorkingId] = useState<string | null>(null);
+    const nav: any = useNavigation(); // try react-navigation first
 
     useEffect(() => {
         (async () => {
@@ -154,6 +159,47 @@ export default function MessagesInboxScreen() {
         }
     }
 
+    // NEW: open AddExpense screen with prefilled values for detailed editing
+    async function openAddDetailed(sms: SmsItem, p: ParsedExpense | null) {
+        const prefill = {
+            amount: p?.amount ?? 0,
+            date: (p?.date ?? new Date(sms.date)).toISOString(),
+            description: p?.description ?? `${sms.address}: ${sms.body.slice(0, 180)}`,
+            source: "sms",
+            messageId: sms._id,
+            tags: p?.tags ?? [],
+        };
+
+        // Mark the source message as processed locally before navigation so it won't reappear.
+        try {
+            const newIgnored = { ...ignored, [sms._id]: true };
+            await AsyncStorage.setItem(IGNORED_KEY, JSON.stringify(newIgnored));
+            setIgnored(newIgnored);
+        } catch (err) {
+            console.warn("Failed to mark message processed locally", err);
+            // continue to navigation even if marking failed
+        }
+
+        // Try react-navigation first
+        try {
+            if (nav && typeof nav.navigate === "function") {
+                // adjust route name if different in your app
+                nav.navigate("AddExpenseScreen", { prefill });
+                return;
+            }
+        } catch (e) {
+            // ignore and fallback
+        }
+
+        // Fallback: expo-router push with encoded prefill (adjust path if needed)
+        try {
+            const encoded = encodeURIComponent(JSON.stringify(prefill));
+            router.push(`/AddExpenseScreen?prefill=${encoded}`);
+        } catch (e) {
+            Alert.alert("Navigation failed", "Unable to open AddExpense screen. Check routing setup.");
+        }
+    }
+
     async function ignoreSms(sms: SmsItem) {
         const newIgnored = { ...ignored, [sms._id]: true };
         await AsyncStorage.setItem(IGNORED_KEY, JSON.stringify(newIgnored));
@@ -222,6 +268,15 @@ export default function MessagesInboxScreen() {
                                     onPress={() => addExpenseFromSms(s, p)}
                                 >
                                     <Text style={styles.addText}>{isWorking ? "Adding…" : "Add expense"}</Text>
+                                </TouchableOpacity>
+
+                                {/* NEW: Add detailed expense */}
+                                <TouchableOpacity
+                                    disabled={isWorking}
+                                    style={[styles.addDetailedBtn, isWorking && { opacity: 0.6 }]}
+                                    onPress={() => openAddDetailed(s, p)}
+                                >
+                                    <Text style={styles.addDetailedText}>Add (detailed)</Text>
                                 </TouchableOpacity>
 
                                 <TouchableOpacity
@@ -329,6 +384,11 @@ const styles = StyleSheet.create({
     actionsRow: { flexDirection: "row", marginTop: 12, justifyContent: "flex-end" },
     addBtn: { backgroundColor: "#06b6d4", paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, marginLeft: 8 },
     addText: { color: "#fff", fontWeight: "800" },
+
+    // NEW styles for detailed-add button
+    addDetailedBtn: { backgroundColor: "#0ea5a4", paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, marginLeft: 8 },
+    addDetailedText: { color: "#fff", fontWeight: "800" },
+
     ignoreBtn: { backgroundColor: "#f3f4f6", paddingVertical: 10, paddingHorizontal: 14, borderRadius: 10, marginLeft: 8 },
     ignoreText: { color: "#374151", fontWeight: "800" },
 });
