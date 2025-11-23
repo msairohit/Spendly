@@ -1,14 +1,3 @@
-/**
- * AddExpenseScreen.tsx
- *
- * Notes:
- * - This implementation uses minimal external deps. For better native pickers and image support,
- *   consider installing:
- *     - @react-native-community/datetimepicker
- *     - expo-image-picker (if using Expo) or react-native-image-picker
- *
- * - If you don't have those, the UI will still work; replace pickImage / native pickers with your preferred implementations.
- */
 
 import React, { useEffect, useMemo, useState } from "react";
 import {
@@ -21,21 +10,17 @@ import {
     Text,
     TextInput,
     TouchableOpacity,
-    View
+    View,
+    SafeAreaView
 } from "react-native";
-
-import DateTimePicker from "@react-native-community/datetimepicker"; // optional but recommended
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { useAuth } from "./AuthProvider";
 import { db } from "./firebase";
-// import * as ImagePicker from 'expo-image-picker'; // optional (Expo)
-// Use emojis as icons so no extra vector-icon dependency is required.
-
-// NEW: navigation helper to go back after save
 import { router } from "expo-router";
-// NEW imports for navigation / prefill support
 import { useRoute } from "@react-navigation/native";
 import { useSearchParams } from "expo-router";
+import { commonStyles, SIZES, COLORS } from "./styles/common";
 
 const CATEGORIES = ["Food", "Transport", "Rent", "Entertainment", "Bills", "Health", "Other"];
 const PAYMENT_METHODS = ["Cash", "Card", "UPI", "Bank Transfer", "Wallet"];
@@ -69,7 +54,6 @@ export default function AddExpenseScreen() {
 
     const headerScale = useMemo(() => new Animated.Value(1), []);
 
-    // --- NEW: read prefill from navigation params (react-navigation) or expo-router query param ---
     const route: any = useRoute?.() ?? {};
     const searchParams = useSearchParams?.() ?? {};
     const prefillQuery = (searchParams as any).prefill as string | undefined;
@@ -78,7 +62,6 @@ export default function AddExpenseScreen() {
         let mounted = true;
 
         async function resolveStringPrefill(raw: string) {
-            // try JSON.parse, decodeURIComponent + parse, up to a couple of attempts
             let s = String(raw);
             for (let i = 0; i < 3; i++) {
                 try {
@@ -87,7 +70,6 @@ export default function AddExpenseScreen() {
                     try { s = decodeURIComponent(s); } catch { break; }
                 }
             }
-            // final attempt
             try { return JSON.parse(raw); } catch { return null; }
         }
 
@@ -100,10 +82,8 @@ export default function AddExpenseScreen() {
 
                 if (!rawPrefill) return;
 
-                // If prefill is object already, use it; if string, we already decoded above.
                 const prefill = typeof rawPrefill === "object" ? rawPrefill : rawPrefill;
 
-                // If editing by id, always attempt to fetch latest doc and merge with prefill
                 if (prefill?.id && user?.email) {
                     try {
                         const userKey = encodeURIComponent(user.email);
@@ -111,7 +91,6 @@ export default function AddExpenseScreen() {
                         const snap = await getDoc(expRef);
                         if (snap.exists()) {
                             const data: any = snap.data();
-                            // merge doc data with prefill (prefill overrides doc)
                             const merged = { ...data, ...prefill };
 
                             if (!mounted) return;
@@ -131,11 +110,9 @@ export default function AddExpenseScreen() {
                         }
                     } catch (e) {
                         console.warn("Failed to load expense doc for editing", e);
-                        // fallthrough to apply any available prefill fields below
                     }
                 }
 
-                // Apply simple prefill if no id/doc or fetch failed
                 if (prefill?.id && mounted) setEditingId(String(prefill.id));
                 if (typeof prefill?.amount !== "undefined" && prefill?.amount !== null && mounted) setAmount(String(prefill.amount));
                 if (prefill?.date && mounted) {
@@ -167,7 +144,6 @@ export default function AddExpenseScreen() {
     function onChangeDate(event: any, selected?: Date) {
         setShowDatePicker(false);
         if (selected) setDate((prev) => {
-            // Keep the previous time if only date was changed
             const next = new Date(selected);
             next.setHours(prev.getHours(), prev.getMinutes());
             return next;
@@ -188,16 +164,10 @@ export default function AddExpenseScreen() {
     }
 
     async function pickImage() {
-        // Placeholder: implement with expo-image-picker or react-native-image-picker.
-        // Example with expo-image-picker:
-        // const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.6 });
-        // if (!result.cancelled) setPhotoUri(result.uri);
-        // For now leave as-is.
         alert("Implement pickImage using expo-image-picker or react-native-image-picker in your project.");
     }
 
     async function submitExpense() {
-        // Validate minimal fields
         if (!description.trim() || !amount.trim()) {
             alert("Please enter description and amount.");
             return;
@@ -215,22 +185,18 @@ export default function AddExpenseScreen() {
             paymentMethod: paymentMethod || null,
             tags: selectedTags,
             photoUri,
-            // createdAt only when creating new doc; updatedAt also set for updates
             createdAt: editingId ? undefined : serverTimestamp(),
             updatedAt: serverTimestamp(),
         };
 
         try {
             setSaving(true);
-            // encode email to a safe doc id
             const userKey = encodeURIComponent(user.email);
             const userDocRef = doc(db, "users", userKey);
             const expensesColRef = collection(userDocRef, "expenses");
             let savedId: string | null = null;
             if (editingId) {
-                // update existing expense
                 const expRef = doc(db, "users", userKey, "expenses", editingId);
-                // remove undefined createdAt so update doesn't clear it
                 const { createdAt: _c, ...updatePayload } = expense as any;
                 await updateDoc(expRef, updatePayload);
                 savedId = editingId;
@@ -239,7 +205,6 @@ export default function AddExpenseScreen() {
                 savedId = docRef.id;
             }
 
-            // If this screen was opened from a message (prefill.messageId), mark that message as processed in Firestore
             try {
                 const prefillParam = route?.params?.prefill ?? (prefillQuery ? JSON.parse(decodeURIComponent(prefillQuery)) : null);
                 const messageId = prefillParam?.messageId;
@@ -248,12 +213,10 @@ export default function AddExpenseScreen() {
                     await updateDoc(msgRef, { processed: true, status: "added", expenseId: savedId });
                 }
             } catch (msgErr) {
-                // non-fatal
                 console.warn("mark message as processed error", msgErr);
             }
 
             alert("Expense saved.");
-            // reset
             setDescription("");
             setAmount("");
             setCategory(null);
@@ -262,7 +225,6 @@ export default function AddExpenseScreen() {
             setPhotoUri(null);
             setDate(new Date());
             setExtrasOpen(false);
-            // go back to previous screen
             router.back();
         } catch (err: any) {
             console.error("Save expense failed", err);
@@ -278,400 +240,253 @@ export default function AddExpenseScreen() {
     })}`;
 
     return (
-        <ScrollView contentContainerStyle={styles.container}>
-            <Animated.View style={[styles.header, { transform: [{ scale: headerScale }] }]}>
-                <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => setShowDatePicker(true)}
-                    style={styles.dateButton}
-                >
-                    <Text style={styles.dateEmoji}>📅</Text>
-                    <View style={styles.dateTextWrap}>
-                        <Text style={styles.dateLabel}>Date & Time</Text>
-                        <Text style={styles.dateText}>{formattedDate}</Text>
+        <SafeAreaView style={commonStyles.safeArea}>
+            <Text style={commonStyles.header}>Add Expense</Text>
+            <ScrollView contentContainerStyle={commonStyles.container}>
+
+                {(route?.params?.prefill || prefillQuery) ? (
+                    <View style={styles.prefillBanner}>
+                        <Text style={styles.prefillText}>Edit Expense!</Text>
+                        <Text style={styles.prefillText}>Prefilled data, edit fields before saving</Text>
                     </View>
-                </TouchableOpacity>
+                ) : null}
 
-                <View style={styles.iconRow}>
-                    <View style={styles.roundIcon}>
-                        <Text style={styles.iconEmoji}>💸</Text>
+                <View style={styles.card}>
+                    <View style={styles.row}>
+                        <TextInput
+                            placeholder="Description"
+                            style={[commonStyles.input, styles.flexTwo]}
+                            value={description}
+                            onChangeText={setDescription}
+                            multiline={true}
+                        />
+                        <TextInput
+                            placeholder="Amount"
+                            keyboardType="numeric"
+                            style={[commonStyles.input, { flex: 1 }]}
+                            value={amount}
+                            onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ""))}
+                        />
                     </View>
-                </View>
-            </Animated.View>
 
-            {/* Prefill notice */}
-            {(route?.params?.prefill || prefillQuery) ? (
-                <View style={styles.prefillBanner}>
-                    <Text style={styles.prefillText}>Edit Expense!</Text>
-                    <Text style={styles.prefillText}>Prefilled data, edit fields before saving</Text>
-                </View>
-            ) : null}
+                    <TouchableOpacity style={styles.extrasToggle} onPress={toggleExtras}>
+                        <Text style={styles.extrasToggleText}>{extrasOpen ? "Hide extras ▲" : "Show extras ▼"}</Text>
+                    </TouchableOpacity>
 
-            <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Primary Details</Text>
+                    {extrasOpen && (
+                        <View>
+                            <Text style={styles.fieldLabel}>Category</Text>
+                            <View style={styles.pickerRow}>
+                                {CATEGORIES.map((c) => {
+                                    const active = c === category;
+                                    return (
+                                        <Pressable
+                                            key={c}
+                                            onPress={() => setCategory(c)}
+                                            style={[styles.pickerChip, active && styles.pickerChipActive]}
+                                        >
+                                            <Text style={[styles.pickerChipText, active && styles.pickerChipTextActive]}>
+                                                {c}
+                                            </Text>
+                                        </Pressable>
+                                    );
+                                })}
+                            </View>
 
-                <View style={styles.row}>
-                    <TextInput
-                        placeholder="Description (e.g., Lunch at cafe)"
-                        style={[styles.input, styles.flexTwo]}
-                        value={description}
-                        onChangeText={setDescription}
-                        multiline={true}
-                    />
-                    <TextInput
-                        placeholder="Amount💵"
-                        keyboardType="numeric"
-                        style={[styles.input, styles.amountInput]}
-                        value={amount}
-                        onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ""))}
-                    />
-                </View>
+                            <Text style={styles.fieldLabel}>Payment Method</Text>
+                            <View style={styles.pickerRow}>
+                                {PAYMENT_METHODS.map((p) => {
+                                    const active = p === paymentMethod;
+                                    return (
+                                        <Pressable
+                                            key={p}
+                                            onPress={() => setPaymentMethod(p)}
+                                            style={[styles.pickerChip, active && styles.pickerChipActive]}
+                                        >
+                                            <Text style={[styles.pickerChipText, active && styles.pickerChipTextActive]}>
+                                                {p}
+                                            </Text>
+                                        </Pressable>
+                                    );
+                                })}
+                            </View>
 
-                <TouchableOpacity style={styles.extrasToggle} onPress={toggleExtras}>
-                    <Text style={styles.extrasToggleText}>{extrasOpen ? "Hide extras ▲" : "Show extras ▼"}</Text>
-                </TouchableOpacity>
+                            <Text style={styles.fieldLabel}>Tags</Text>
+                            <View style={styles.tagsRow}>
+                                {TAGS.map((t) => {
+                                    const active = selectedTags.includes(t);
+                                    return (
+                                        <Pressable
+                                            key={t}
+                                            onPress={() => toggleTag(t)}
+                                            style={[styles.tagChip, active && styles.tagChipActive]}
+                                        >
+                                            <Text style={[styles.tagText, active && styles.tagTextActive]}>{t}</Text>
+                                        </Pressable>
+                                    );
+                                })}
+                            </View>
 
-                {extrasOpen && (
-                    <View style={styles.extrasWrap}>
-                        <Text style={styles.fieldLabel}>Category</Text>
-                        <View style={styles.pickerRow}>
-                            {CATEGORIES.map((c) => {
-                                const active = c === category;
-                                return (
-                                    <Pressable
-                                        key={c}
-                                        onPress={() => setCategory(c)}
-                                        style={[styles.pickerChip, active && styles.pickerChipActive]}
-                                    >
-                                        <Text style={[styles.pickerChipText, active && styles.pickerChipTextActive]}>
-                                            {c}
-                                        </Text>
-                                    </Pressable>
-                                );
-                            })}
-                        </View>
-
-                        <Text style={styles.fieldLabel}>Payment Method</Text>
-                        <View style={styles.pickerRow}>
-                            {PAYMENT_METHODS.map((p) => {
-                                const active = p === paymentMethod;
-                                return (
-                                    <Pressable
-                                        key={p}
-                                        onPress={() => setPaymentMethod(p)}
-                                        style={[styles.pickerChip, active && styles.pickerChipActive]}
-                                    >
-                                        <Text style={[styles.pickerChipText, active && styles.pickerChipTextActive]}>
-                                            {p}
-                                        </Text>
-                                    </Pressable>
-                                );
-                            })}
-                        </View>
-
-                        <Text style={styles.fieldLabel}>Tags</Text>
-                        <View style={styles.tagsRow}>
-                            {TAGS.map((t) => {
-                                const active = selectedTags.includes(t);
-                                return (
-                                    <Pressable
-                                        key={t}
-                                        onPress={() => toggleTag(t)}
-                                        style={[styles.tagChip, active && styles.tagChipActive]}
-                                    >
-                                        <Text style={[styles.tagText, active && styles.tagTextActive]}>{t}</Text>
-                                    </Pressable>
-                                );
-                            })}
-                        </View>
-
-                        <Text style={styles.fieldLabel}>Photo</Text>
-                        <View style={styles.photoRow}>
-                            <TouchableOpacity style={styles.photoBox} onPress={pickImage}>
-                                {photoUri ? (
-                                    <Image source={{ uri: photoUri }} style={styles.photo} />
-                                ) : (
-                                    <Text style={styles.photoPlaceholder}>📷 Add photo</Text>
-                                )}
+                            <Text style={styles.fieldLabel}>Date & Time</Text>
+                            <TouchableOpacity
+                                activeOpacity={0.8}
+                                onPress={() => setShowDatePicker(true)}
+                                style={styles.dateButton}
+                            >
+                                <Text style={styles.dateText}>{formattedDate}</Text>
                             </TouchableOpacity>
 
-                            <View style={styles.metaColumn}>
-                                <Text style={styles.hintText}>Attach receipt or quick photo</Text>
-                                <Text style={styles.hintSub}>
-                                    Photos can help with proof and later OCR (if integrated)
-                                </Text>
+                            <Text style={styles.fieldLabel}>Photo</Text>
+                            <View style={styles.photoRow}>
+                                <TouchableOpacity style={styles.photoBox} onPress={pickImage}>
+                                    {photoUri ? (
+                                        <Image source={{ uri: photoUri }} style={styles.photo} />
+                                    ) : (
+                                        <Text style={styles.photoPlaceholder}>📷 Add photo</Text>
+                                    )}
+                                </TouchableOpacity>
                             </View>
                         </View>
-                    </View>
+                    )}
+
+                    <TouchableOpacity style={[commonStyles.button, saving && { opacity: 0.7 }]} onPress={submitExpense} disabled={saving}>
+                        <Text style={commonStyles.buttonText}>{saving ? "Saving..." : ((route?.params?.prefill || prefillQuery) ? "Edit Expense" : "Add Expense")}</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {showDatePicker && (
+                    <DateTimePicker
+                        value={date}
+                        mode="date"
+                        display={Platform.OS === "ios" ? "spinner" : "default"}
+                        onChange={onChangeDate}
+                    />
                 )}
-
-                <TouchableOpacity style={[styles.addButton, saving && { opacity: 0.7 }]} onPress={submitExpense} disabled={saving}>
-                    <Text style={styles.addButtonText}>{saving ? "Saving..." : ((route?.params?.prefill || prefillQuery) ? "Edit Expense" : "➕ Add Expense")}</Text>
-                </TouchableOpacity>
-            </View>
-
-            {showDatePicker && (
-                <DateTimePicker
-                    value={date}
-                    mode="date"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    onChange={onChangeDate}
-                />
-            )}
-            {showTimePicker && (
-                <DateTimePicker
-                    value={date}
-                    mode="time"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    onChange={onChangeTime}
-                />
-            )}
-
-            {/* Quick-time button row */}
-            <View style={styles.quickRow}>
-                <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.quickBtn}>
-                    <Text style={styles.quickText}>Change Date</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setShowTimePicker(true)} style={styles.quickBtn}>
-                    <Text style={styles.quickText}>Change Time</Text>
-                </TouchableOpacity>
-            </View>
-        </ScrollView>
+                {showTimePicker && (
+                    <DateTimePicker
+                        value={date}
+                        mode="time"
+                        display={Platform.OS === "ios" ? "spinner" : "default"}
+                        onChange={onChangeTime}
+                    />
+                )}
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        padding: 18,
-        backgroundColor: "#f7f9fc",
-        minHeight: "100%",
-    },
-    header: {
-        alignItems: "center",
-        marginBottom: 12,
-        flexDirection: "row",
-        justifyContent: "space-between",
-    },
-    dateButton: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: "#ffffff",
-        padding: 12,
-        borderRadius: 14,
-        elevation: 2,
-        shadowColor: "#000",
-        shadowOpacity: 0.06,
-        shadowRadius: 8,
-        flex: 1,
-        marginRight: 12,
-    },
-    dateEmoji: {
-        fontSize: 28,
-        marginRight: 10,
-    },
-    dateTextWrap: {
-        flex: 1,
-    },
-    dateLabel: {
-        color: "#6b7280",
-        fontSize: 12,
-    },
-    dateText: {
-        fontSize: 16,
-        fontWeight: "600",
-        color: "#111827",
-    },
-    iconRow: {
-        width: 52,
-        height: 52,
-        borderRadius: 14,
-        backgroundColor: "#fff",
-        alignItems: "center",
-        justifyContent: "center",
-        elevation: 2,
-    },
-    roundIcon: {
-        width: 44,
-        height: 44,
-        borderRadius: 12,
-        backgroundColor: "#ffefcc",
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    iconEmoji: {
-        fontSize: 20,
-    },
     card: {
-        backgroundColor: "#fff",
-        borderRadius: 16,
-        padding: 16,
-        elevation: 3,
-        shadowColor: "#000",
-        shadowOpacity: 0.06,
-        shadowRadius: 10,
-    },
-    sectionTitle: {
-        fontSize: 14,
-        color: "#374151",
-        marginBottom: 8,
-        fontWeight: "600",
+        backgroundColor: COLORS.white,
+        borderRadius: SIZES.radius,
+        padding: SIZES.padding,
+        marginBottom: SIZES.padding,
     },
     row: {
         flexDirection: "row",
-        gap: 10,
+        gap: SIZES.base,
         alignItems: "center",
-    },
-    input: {
-        backgroundColor: "#f3f4f6",
-        padding: 12,
-        borderRadius: 12,
-        marginBottom: 10,
+        marginBottom: SIZES.base
     },
     flexTwo: {
         flex: 2,
-        marginRight: 8,
-    },
-    amountInput: {
-        width: 110,
-        textAlign: "right",
     },
     extrasToggle: {
-        marginVertical: 6,
+        marginVertical: SIZES.base,
     },
     extrasToggleText: {
-        color: "#2563eb",
+        color: COLORS.primary,
         fontWeight: "600",
     },
-    extrasWrap: {
-        marginTop: 6,
-    },
     fieldLabel: {
-        marginTop: 10,
-        marginBottom: 6,
-        color: "#4b5563",
+        marginTop: SIZES.base,
+        marginBottom: SIZES.base,
+        color: COLORS.black,
         fontWeight: "600",
     },
     pickerRow: {
         flexDirection: "row",
         flexWrap: "wrap",
-        gap: 8,
+        gap: SIZES.base,
+        marginBottom: SIZES.base,
     },
     pickerChip: {
-        paddingVertical: 8,
-        paddingHorizontal: 12,
-        borderRadius: 999,
-        backgroundColor: "#eef2ff",
-        marginRight: 8,
-        marginBottom: 8,
+        paddingVertical: SIZES.base,
+        paddingHorizontal: SIZES.base * 1.5,
+        borderRadius: SIZES.radius,
+        backgroundColor: COLORS.lightGray,
     },
     pickerChipActive: {
-        backgroundColor: "#c7d2fe",
+        backgroundColor: COLORS.primary,
     },
     pickerChipText: {
-        color: "#3730a3",
-        fontWeight: "600",
+        color: COLORS.black,
     },
     pickerChipTextActive: {
-        color: "#1e3a8a",
+        color: COLORS.white,
     },
     tagsRow: {
         flexDirection: "row",
         flexWrap: "wrap",
+        gap: SIZES.base,
+        marginBottom: SIZES.base,
     },
     tagChip: {
-        paddingVertical: 6,
-        paddingHorizontal: 10,
-        borderRadius: 20,
-        backgroundColor: "#f3f4f6",
-        marginRight: 8,
-        marginBottom: 8,
+        paddingVertical: SIZES.base * 0.75,
+        paddingHorizontal: SIZES.base * 1.25,
+        borderRadius: SIZES.radius,
+        backgroundColor: COLORS.lightGray,
     },
     tagChipActive: {
-        backgroundColor: "#fde68a",
+        backgroundColor: COLORS.secondary,
     },
     tagText: {
-        color: "#374151",
+        color: COLORS.black,
     },
     tagTextActive: {
-        color: "#92400e",
-        fontWeight: "700",
+        color: COLORS.white,
+    },
+    dateButton: {
+        backgroundColor: COLORS.lightGray,
+        padding: SIZES.padding / 2,
+        borderRadius: SIZES.radius,
+        alignItems: "center",
+        marginBottom: SIZES.base,
+    },
+    dateText: {
+        color: COLORS.black,
+        fontSize: SIZES.font,
     },
     photoRow: {
         flexDirection: "row",
         alignItems: "center",
-        marginTop: 6,
+        gap: SIZES.base,
+        marginBottom: SIZES.padding
     },
     photoBox: {
-        width: 86,
-        height: 86,
-        borderRadius: 12,
-        backgroundColor: "#fff",
-        borderWidth: 1,
-        borderColor: "#e5e7eb",
+        width: 100,
+        height: 100,
+        borderRadius: SIZES.radius,
+        backgroundColor: COLORS.lightGray,
         alignItems: "center",
         justifyContent: "center",
-        marginRight: 12,
     },
     photo: {
         width: "100%",
         height: "100%",
-        borderRadius: 12,
+        borderRadius: SIZES.radius,
     },
     photoPlaceholder: {
-        color: "#9ca3af",
-        textAlign: "center",
-    },
-    metaColumn: {
-        flex: 1,
-    },
-    hintText: {
-        color: "#6b7280",
-        fontWeight: "600",
-    },
-    hintSub: {
-        color: "#9ca3af",
-        fontSize: 12,
-        marginTop: 4,
-    },
-    addButton: {
-        marginTop: 14,
-        backgroundColor: "#10b981",
-        paddingVertical: 14,
-        borderRadius: 12,
-        alignItems: "center",
-    },
-    addButtonText: {
-        color: "#fff",
-        fontWeight: "800",
-        fontSize: 16,
-    },
-    quickRow: {
-        marginTop: 14,
-        flexDirection: "row",
-        justifyContent: "space-between",
-    },
-    quickBtn: {
-        backgroundColor: "#fff",
-        padding: 10,
-        borderRadius: 10,
-        flex: 1,
-        alignItems: "center",
-        marginHorizontal: 6,
-    },
-    quickText: {
-        color: "#374151",
-        fontWeight: "600",
+        color: COLORS.black,
     },
     prefillBanner: {
-        backgroundColor: "#e0f7fa",
-        borderLeftWidth: 4,
-        borderColor: "#00796b",
-        padding: 12,
-        borderRadius: 12,
-        marginBottom: 16,
+        backgroundColor: COLORS.secondary,
+        padding: SIZES.padding,
+        borderRadius: SIZES.radius,
+        marginBottom: SIZES.padding,
     },
     prefillText: {
-        color: "#00796b",
-        fontWeight: "500",
+        color: COLORS.white,
+        fontWeight: "bold",
     },
 });
