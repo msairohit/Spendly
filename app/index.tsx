@@ -67,13 +67,20 @@ export default function Index() {
               </TouchableOpacity>
 
               <TouchableOpacity
+                style={[styles.btn, { backgroundColor: "#6b7280" }]}
+                onPress={() => router.push("/MessagesInboxScreen")}
+              >
+                <Text style={styles.btnText}>Add expense from messages</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
                 style={[styles.btn, { backgroundColor: "#2563eb" }]}
                 onPress={() => router.push("/ExpensesScreen")}
               >
                 <Text style={styles.btnText}>Show expenses</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity
+              {/* <TouchableOpacity
                 style={[styles.btn, { backgroundColor: "#f59e0b" }]}
                 onPress={() => router.push("/AnalyticsScreen")}
               >
@@ -85,13 +92,20 @@ export default function Index() {
                 onPress={() => router.push("/AnalyticsAdvancedScreen")}
               >
                 <Text style={styles.btnText}>Advanced Analytics</Text>
+              </TouchableOpacity> */}
+
+              <TouchableOpacity
+                style={[styles.btn, { backgroundColor: "#f59e0b" }]}
+                onPress={() => router.push("/TrendsScreen")}
+              >
+                <Text style={styles.btnText}>Monthly / Weekly Trends</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.btn, { backgroundColor: "#6b7280" }]}
-                onPress={() => router.push("/MessagesInboxScreen")}
+                style={[styles.btn, { backgroundColor: "#b76022ff" }]}
+                onPress={() => router.push("/CategoryTagTrends")}
               >
-                <Text style={styles.btnText}>Add expense from messages</Text>
+                <Text style={styles.btnText}>Category tag trends</Text>
               </TouchableOpacity>
 
             </>

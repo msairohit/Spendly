@@ -1,6 +1,6 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
-import { useNavigation } from "@react-navigation/native";
-import { router } from "expo-router";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import { useSearchParams } from "expo-router";
 import {
     collection,
     deleteDoc,
@@ -86,9 +86,30 @@ function toLocalISO(d: Date) {
     return `${yyyy}-${mm}-${dd}`;
 }
 
-export default function ExpensesScreen() {
+// helper: parse ISO/date inputs into local Date
+function parseToLocalDate(raw?: string | null, endOfDay = false): Date | null {
+    if (!raw) return null;
+    const s = String(raw);
+    // treat YYYY-MM-DD (no 'T', length <= 10) as local date
+    if (s.length <= 10 && !s.includes("T")) {
+        const [yStr, mStr, dStr] = s.split("-");
+        const y = Number(yStr || 0);
+        const m = Math.max(0, Number(mStr || 1) - 1);
+        const d = Number(dStr || 1);
+        if (isFinite(y) && isFinite(m) && isFinite(d)) {
+            if (endOfDay) return new Date(y, m, d, 23, 59, 59, 999);
+            return new Date(y, m, d, 0, 0, 0, 0);
+        }
+    }
+    // fallback: let Date parse (may be an ISO with time)
+    const parsed = new Date(s);
+    return isFinite(parsed.getTime()) ? parsed : null;
+}
 
+export default function ExpensesScreen() {
     const nav: any = useNavigation(); // try react-navigation first
+    const route: any = useRoute?.() ?? {};
+    const searchParams = useSearchParams?.() ?? {};
     const { user, loading: authLoading } = useAuth();
     const [loading, setLoading] = useState(true);
     const [expenses, setExpenses] = useState<Expense[]>([]);
@@ -109,6 +130,43 @@ export default function ExpensesScreen() {
     const [toPickerMode, setToPickerMode] = useState<"date" | "time">("date");
     const [showFromPicker, setShowFromPicker] = useState(false);
     const [showToPicker, setShowToPicker] = useState(false);
+
+    // Apply incoming filters from route params or query params (when navigated from TrendsScreen / CategoryTagTrends)
+    useEffect(() => {
+        try {
+            const navFilters = route?.params?.filters;
+            if (navFilters && (navFilters.from || navFilters.to || navFilters.tag || navFilters.category)) {
+                setFilters((s) => ({
+                    ...s,
+                    from: navFilters.from ?? s.from,
+                    to: navFilters.to ?? s.to,
+                    tag: navFilters.tag ?? s.tag,
+                    category: navFilters.category ?? s.category,
+                }));
+                return;
+            }
+        } catch (e) { }
+
+        try {
+            const qFrom = (searchParams as any)?.from;
+            const qTo = (searchParams as any)?.to;
+            const qTag = (searchParams as any)?.tag;
+            const qCategory = (searchParams as any)?.category;
+            if (qFrom || qTo || qTag || qCategory) {
+                const from = qFrom ? decodeURIComponent(String(qFrom)) : "";
+                const to = qTo ? decodeURIComponent(String(qTo)) : "";
+                const tag = qTag ? decodeURIComponent(String(qTag)) : "";
+                const category = qCategory ? decodeURIComponent(String(qCategory)) : "";
+                setFilters((s) => ({
+                    ...s,
+                    from: from || s.from,
+                    to: to || s.to,
+                    tag: tag || s.tag,
+                    category: category || s.category,
+                }));
+            }
+        } catch (e) { }
+    }, [route?.params?.filters, (searchParams as any)?.from, (searchParams as any)?.to, (searchParams as any)?.tag, (searchParams as any)?.category]);
 
     // detail modal
     const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
@@ -185,7 +243,14 @@ export default function ExpensesScreen() {
             }
             if (f.to) {
                 const toDate = new Date(f.to);
-                if (isFinite(toDate.getTime()) && e.date > new Date(toDate.getTime() + 24 * 3600 * 1000 - 1)) return false;
+                if (isFinite(toDate.getTime())) {
+                    // If caller provided a date-only string like YYYY-MM-DD (no "T"), treat it as end-of-day.
+                    // Otherwise assume f.to already has time and use it as-is.
+                    const raw = String(f.to || "");
+                    const isDateOnly = raw.length <= 10 && !raw.includes("T");
+                    const cap = isDateOnly ? new Date(toDate.getTime() + 24 * 3600 * 1000 - 1) : toDate;
+                    if (e.date > cap) return false;
+                }
             }
             return true;
         });
@@ -246,14 +311,18 @@ export default function ExpensesScreen() {
         if (filters.category) parts.push(`Category: ${filters.category}`);
         if (filters.paymentMethod) parts.push(`Payment: ${filters.paymentMethod}`);
         if (filters.tag) parts.push(`Tag: ${filters.tag}`);
+
         if (filters.from) {
             try {
-                parts.push(`From: ${new Date(filters.from).toLocaleString()}`);
+                const fd = parseToLocalDate(filters.from);
+                if (fd) parts.push(`From: ${fd.toLocaleString()}`);
             } catch { }
         }
         if (filters.to) {
             try {
-                parts.push(`To: ${new Date(filters.to).toLocaleString()}`);
+                // Show local end-of-day for display (23:59)
+                const td = parseToLocalDate(filters.to, true);
+                if (td) parts.push(`To: ${td.toLocaleString()}`);
             } catch { }
         }
         return parts.join(" • ");
@@ -521,18 +590,20 @@ export default function ExpensesScreen() {
 
                                 {/* From picker */}
                                 <TouchableOpacity style={styles.input} onPress={() => { setFromPickerMode("date"); setShowFromPicker(true); }}>
-                                    <Text style={{ color: filters.from ? "#111827" : "#9ca3af" }}>{filters.from ? new Date(filters.from).toLocaleString() : "From (date & time)"}</Text>
+                                    <Text style={{ color: filters.from ? "#111827" : "#9ca3af" }}>{filters.from ? (parseToLocalDate(filters.from)?.toLocaleString() ?? "Invalid date") : "From (date & time)"}</Text>
                                 </TouchableOpacity>
 
                                 {/* To picker */}
                                 <TouchableOpacity style={styles.input} onPress={() => { setToPickerMode("date"); setShowToPicker(true); }}>
-                                    <Text style={{ color: filters.to ? "#111827" : "#9ca3af" }}>{filters.to ? new Date(filters.to).toLocaleString() : "To (date & time)"}</Text>
+                                    <Text style={{ color: filters.to ? "#111827" : "#9ca3af" }}>
+                                        {filters.to ? (parseToLocalDate(filters.to, true)?.toLocaleString() ?? "Invalid date") : "To (date & time)"}
+                                    </Text>
                                 </TouchableOpacity>
 
                                 {/* DateTimePicker instances (sequential date -> time) */}
                                 {showFromPicker && (
                                     <DateTimePicker
-                                        value={fromTemp ?? (filters.from ? new Date(filters.from) : new Date())}
+                                        value={fromTemp ?? parseToLocalDate(filters.from) ?? new Date()}
                                         mode={fromPickerMode}
                                         display={Platform.OS === "ios" ? "spinner" : "default"}
                                         onChange={(e, selected) => {
@@ -562,7 +633,7 @@ export default function ExpensesScreen() {
 
                                 {showToPicker && (
                                     <DateTimePicker
-                                        value={toTemp ?? (filters.to ? new Date(filters.to) : new Date())}
+                                        value={toTemp ?? parseToLocalDate(filters.to, true) ?? new Date()}
                                         mode={toPickerMode}
                                         display={Platform.OS === "ios" ? "spinner" : "default"}
                                         onChange={(e, selected) => {

@@ -13,7 +13,6 @@ import {
     KeyboardAvoidingView,
     Modal,
     Platform,
-    SafeAreaView,
     ScrollView,
     StyleSheet,
     Switch,
@@ -27,6 +26,7 @@ import { useAuth } from "./AuthProvider";
 import { db } from "./firebase";
 // Date picker
 import DateTimePicker from "@react-native-community/datetimepicker";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 type Expense = {
     id: string;
@@ -844,7 +844,7 @@ export default function AnalyticsAdvancedScreen() {
 const s = StyleSheet.create({
     safe: { flex: 1, backgroundColor: "#0f172a" },
     center: { justifyContent: "center", alignItems: "center" },
-    header: { paddingTop: Platform.OS === "android" ? 26 : 16, paddingHorizontal: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+    header: { paddingTop: Platform.OS === "android" ? 15 : 16, paddingHorizontal: 16, flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
     title: { color: "#fff", fontSize: 20, fontWeight: "900" },
     subtitle: { color: "#9ca3af", fontWeight: "700" },
     panel: { backgroundColor: "#fff", borderRadius: 12, padding: 12, marginBottom: 6 },
