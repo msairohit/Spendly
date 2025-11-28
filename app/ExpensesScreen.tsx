@@ -1,3 +1,4 @@
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useNavigation } from "@react-navigation/native";
 import { router } from "expo-router";
 import {
@@ -16,7 +17,6 @@ import {
     Image,
     Modal,
     Platform,
-    SafeAreaView,
     ScrollView,
     SectionList,
     StyleSheet,
@@ -26,6 +26,7 @@ import {
     TouchableWithoutFeedback,
     View
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "./AuthProvider";
 import { db } from "./firebase";
 
@@ -101,6 +102,13 @@ export default function ExpensesScreen() {
         to: "",
         search: "",
     });
+    // picker state for filter From/To (sequential date -> time)
+    const [fromTemp, setFromTemp] = useState<Date | null>(null);
+    const [toTemp, setToTemp] = useState<Date | null>(null);
+    const [fromPickerMode, setFromPickerMode] = useState<"date" | "time">("date");
+    const [toPickerMode, setToPickerMode] = useState<"date" | "time">("date");
+    const [showFromPicker, setShowFromPicker] = useState(false);
+    const [showToPicker, setShowToPicker] = useState(false);
 
     // detail modal
     const [selectedExpense, setSelectedExpense] = useState<Expense | null>(null);
@@ -231,6 +239,25 @@ export default function ExpensesScreen() {
     function clearFilters() {
         setFilters({ category: "", paymentMethod: "", tag: "", from: "", to: "", search: "" });
     }
+    // human friendly summary of active filters
+    const filterSummary = useMemo(() => {
+        const parts: string[] = [];
+        if (filters.search) parts.push(`Description: ${filters.search}`);
+        if (filters.category) parts.push(`Category: ${filters.category}`);
+        if (filters.paymentMethod) parts.push(`Payment: ${filters.paymentMethod}`);
+        if (filters.tag) parts.push(`Tag: ${filters.tag}`);
+        if (filters.from) {
+            try {
+                parts.push(`From: ${new Date(filters.from).toLocaleString()}`);
+            } catch { }
+        }
+        if (filters.to) {
+            try {
+                parts.push(`To: ${new Date(filters.to).toLocaleString()}`);
+            } catch { }
+        }
+        return parts.join(" • ");
+    }, [filters]);
 
     if (authLoading || loading) {
         return (
@@ -340,11 +367,12 @@ export default function ExpensesScreen() {
             <View style={styles.header}>
                 <Text style={styles.title}>Expenses</Text>
                 <View style={styles.headerRight}>
-                    <Text style={styles.emailSmall}>{user.email}</Text>
                     <TouchableOpacity style={styles.pill} onPress={() => setFilterOpen(true)}>
                         <Text style={styles.pillText}>⚙️ Filters</Text>
                     </TouchableOpacity>
                 </View>
+                {/* Active filters summary */}
+                {filterSummary ? <Text style={{ color: "#6b7280", marginTop: 10 }}>Applied filters: {filterSummary}</Text> : null}
             </View>
 
             <View style={styles.viewModeRow}>
@@ -438,7 +466,7 @@ export default function ExpensesScreen() {
                                 </TouchableOpacity>
                             );
                         })}
-                        {monthly.length === 0 && <Text style={styles.emptyText}>No data for monthly view</Text>}
+                        {monthly.length === 0 && <Text style={styles.emptyText}>No data for monthly view, clear filters to see all results!</Text>}
                     </ScrollView>
                 )}
 
@@ -462,7 +490,7 @@ export default function ExpensesScreen() {
                                 </View>
                             </TouchableOpacity>
                         ))}
-                        {weekly.length === 0 && <Text style={styles.emptyText}>No data for weekly view</Text>}
+                        {weekly.length === 0 && <Text style={styles.emptyText}>No data for weekly view, clear filters to see all results!</Text>}
                     </ScrollView>
                 )}
 
@@ -486,12 +514,82 @@ export default function ExpensesScreen() {
                             <View style={styles.modalCard}>
                                 <Text style={styles.modalTitle}>Filters</Text>
 
-                                <TextInput placeholder="Search description/tags..." style={styles.input} value={filters.search} onChangeText={(t) => setFilters((s) => ({ ...s, search: t }))} />
+                                <TextInput placeholder="Search description" style={styles.input} value={filters.search} onChangeText={(t) => setFilters((s) => ({ ...s, search: t }))} />
                                 <TextInput placeholder="Category (exact)" style={styles.input} value={filters.category} onChangeText={(t) => setFilters((s) => ({ ...s, category: t }))} />
                                 <TextInput placeholder="Payment method" style={styles.input} value={filters.paymentMethod} onChangeText={(t) => setFilters((s) => ({ ...s, paymentMethod: t }))} />
                                 <TextInput placeholder="Tag (single)" style={styles.input} value={filters.tag} onChangeText={(t) => setFilters((s) => ({ ...s, tag: t }))} />
-                                <TextInput placeholder="From (YYYY-MM-DD)" style={styles.input} value={filters.from} onChangeText={(t) => setFilters((s) => ({ ...s, from: t }))} />
-                                <TextInput placeholder="To (YYYY-MM-DD)" style={styles.input} value={filters.to} onChangeText={(t) => setFilters((s) => ({ ...s, to: t }))} />
+
+                                {/* From picker */}
+                                <TouchableOpacity style={styles.input} onPress={() => { setFromPickerMode("date"); setShowFromPicker(true); }}>
+                                    <Text style={{ color: filters.from ? "#111827" : "#9ca3af" }}>{filters.from ? new Date(filters.from).toLocaleString() : "From (date & time)"}</Text>
+                                </TouchableOpacity>
+
+                                {/* To picker */}
+                                <TouchableOpacity style={styles.input} onPress={() => { setToPickerMode("date"); setShowToPicker(true); }}>
+                                    <Text style={{ color: filters.to ? "#111827" : "#9ca3af" }}>{filters.to ? new Date(filters.to).toLocaleString() : "To (date & time)"}</Text>
+                                </TouchableOpacity>
+
+                                {/* DateTimePicker instances (sequential date -> time) */}
+                                {showFromPicker && (
+                                    <DateTimePicker
+                                        value={fromTemp ?? (filters.from ? new Date(filters.from) : new Date())}
+                                        mode={fromPickerMode}
+                                        display={Platform.OS === "ios" ? "spinner" : "default"}
+                                        onChange={(e, selected) => {
+                                            if (e.type === "dismissed") {
+                                                setShowFromPicker(false);
+                                                setFromTemp(null);
+                                                return;
+                                            }
+                                            const sel = selected || new Date();
+                                            if (fromPickerMode === "date") {
+                                                setFromTemp(sel);
+                                                // open time picker next
+                                                setFromPickerMode("time");
+                                                setTimeout(() => setShowFromPicker(true), 50);
+                                            } else {
+                                                // time chosen -> combine with fromTemp (or today) and set filter
+                                                const base = fromTemp ?? new Date();
+                                                base.setHours(sel.getHours(), sel.getMinutes(), 0, 0);
+                                                setFilters((s) => ({ ...s, from: base.toISOString() }));
+                                                setShowFromPicker(false);
+                                                setFromTemp(null);
+                                                setFromPickerMode("date");
+                                            }
+                                        }}
+                                    />
+                                )}
+
+                                {showToPicker && (
+                                    <DateTimePicker
+                                        value={toTemp ?? (filters.to ? new Date(filters.to) : new Date())}
+                                        mode={toPickerMode}
+                                        display={Platform.OS === "ios" ? "spinner" : "default"}
+                                        onChange={(e, selected) => {
+                                            if (e.type === "dismissed") {
+                                                setShowToPicker(false);
+                                                setToTemp(null);
+                                                return;
+                                            }
+                                            const sel = selected || new Date();
+                                            if (toPickerMode === "date") {
+                                                setToTemp(sel);
+                                                setToPickerMode("time");
+                                                setTimeout(() => setShowToPicker(true), 50);
+                                            } else {
+                                                const base = toTemp ?? new Date();
+                                                base.setHours(sel.getHours(), sel.getMinutes(), 59, 999);
+                                                setFilters((s) => ({ ...s, to: base.toISOString() }));
+                                                setShowToPicker(false);
+                                                setToTemp(null);
+                                                setToPickerMode("date");
+                                            }
+                                        }}
+                                    />
+                                )}
+
+                                {/* Active filters summary */}
+                                {filterSummary ? <Text style={{ color: "#6b7280", marginTop: 10 }}>{filterSummary}</Text> : null}
 
                                 <View style={{ flexDirection: "row", marginTop: 12 }}>
                                     <TouchableOpacity style={[styles.primaryBtn, { flex: 1 }]} onPress={() => setFilterOpen(false)}>
@@ -629,18 +727,18 @@ const styles = StyleSheet.create({
         paddingTop: Platform.OS === "ios" ? 44 : 20,
         paddingHorizontal: 18,
         paddingBottom: 14,
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
         backgroundColor: "#06202a",
         borderBottomColor: "rgba(255,255,255,0.04)",
         borderBottomWidth: 1,
         shadowColor: "#000",
         shadowOpacity: 0.12,
         shadowRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        position: "relative",
     },
-    title: { color: "#fff", fontSize: 22, fontWeight: "900" },
-    headerRight: { flexDirection: "row", alignItems: "center", gap: 8 },
+    title: { color: "#fff", fontSize: 22, fontWeight: "900", textAlign: "center" },
+    headerRight: { position: "absolute", right: 18, top: Platform.OS === "ios" ? 44 : 20, flexDirection: "row", alignItems: "center", gap: 8 },
     emailSmall: { color: "#cfeeea", marginRight: 8, fontSize: 12 },
     pill: {
         backgroundColor: "#083344",
