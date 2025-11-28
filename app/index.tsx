@@ -3,18 +3,19 @@ import React, { useState } from "react";
 import {
   ActivityIndicator,
   Platform,
-  SafeAreaView,
   StatusBar,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "./AuthProvider";
 
 export default function Index() {
   const { user, loading, signOut } = useAuth();
   const [busy, setBusy] = useState(false);
+  const insets = useSafeAreaInsets();
 
   async function handleLogout() {
     try {
@@ -29,8 +30,9 @@ export default function Index() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" />
-      <View style={styles.topBackground}>
+      {/* ensure status bar style and no overlap */}
+      <StatusBar barStyle="light-content" translucent={false} />
+      <View style={[styles.topBackground, { paddingTop: insets.top || 16 }]}>
         <View style={styles.circleA} />
         <View style={styles.circleB} />
       </View>
@@ -176,7 +178,7 @@ const styles = StyleSheet.create({
   smallNote: { textAlign: "center", color: "#9ca3af", marginTop: 12 },
   logoutBtn: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 48 : 20,
+    bottom: Platform.OS === "ios" ? 48 : 50,
     right: 16,
     backgroundColor: "#ef4444",
     paddingVertical: 8,

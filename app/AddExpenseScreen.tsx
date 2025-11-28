@@ -17,12 +17,14 @@ import {
     Platform,
     Pressable,
     ScrollView,
+    StatusBar,
     StyleSheet,
     Text,
     TextInput,
     TouchableOpacity,
-    View
+    View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import DateTimePicker from "@react-native-community/datetimepicker"; // optional but recommended
 import { addDoc, collection, doc, getDoc, serverTimestamp, updateDoc } from "firebase/firestore";
@@ -36,6 +38,9 @@ import { router } from "expo-router";
 // NEW imports for navigation / prefill support
 import { useRoute } from "@react-navigation/native";
 import { useSearchParams } from "expo-router";
+import { useTheme } from "./theme";
+
+// (screen header is hidden globally via app/_layout.tsx)
 
 const CATEGORIES = ["Food", "Transport", "Rent", "Entertainment", "Bills", "Health", "Other"];
 const PAYMENT_METHODS = ["Cash", "Card", "UPI", "Bank Transfer", "Wallet"];
@@ -52,6 +57,7 @@ const TAGS = [
 
 export default function AddExpenseScreen() {
     const { user } = useAuth();
+    const { theme, mode } = useTheme();
     const [editingId, setEditingId] = useState<string | null>(null);
     const [date, setDate] = useState(new Date());
     const [showDatePicker, setShowDatePicker] = useState(false);
@@ -172,6 +178,9 @@ export default function AddExpenseScreen() {
             next.setHours(prev.getHours(), prev.getMinutes());
             return next;
         });
+        // After selecting date, immediately open time picker so user can choose time
+        // (works well for Android date->time flow and for explicit flow on iOS)
+        setShowTimePicker(true);
     }
 
     function onChangeTime(event: any, selected?: Date) {
@@ -278,172 +287,171 @@ export default function AddExpenseScreen() {
     })}`;
 
     return (
-        <ScrollView contentContainerStyle={styles.container}>
-            <Animated.View style={[styles.header, { transform: [{ scale: headerScale }] }]}>
-                <TouchableOpacity
-                    activeOpacity={0.8}
-                    onPress={() => setShowDatePicker(true)}
-                    style={styles.dateButton}
-                >
-                    <Text style={styles.dateEmoji}>📅</Text>
-                    <View style={styles.dateTextWrap}>
-                        <Text style={styles.dateLabel}>Date & Time</Text>
-                        <Text style={styles.dateText}>{formattedDate}</Text>
+        <SafeAreaView style={[styles.safe, { backgroundColor: theme?.colors?.backgroundDark ?? "#06202a" }]}>
+            <StatusBar barStyle={mode === "dark" ? "light-content" : "dark-content"} backgroundColor={theme?.colors?.backgroundDark ?? "#06202a"} />
+            <ScrollView contentContainerStyle={styles.container}>
+                {/* Centered main heading */}
+                <Text style={[styles.heading, { color: theme?.colors?.headerText ?? "#fff" }]}>Add / Edit Expense</Text>
+
+                <Animated.View style={[styles.header, { transform: [{ scale: headerScale }] }]}>
+                    <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => setShowDatePicker(true)}
+                        style={styles.dateButton}
+                    >
+                        <Text style={styles.dateEmoji}>📅</Text>
+                        <View style={styles.dateTextWrap}>
+                            <Text style={styles.dateLabel}>Date & Time</Text>
+                            <Text style={styles.dateText}>{formattedDate}</Text>
+                        </View>
+                    </TouchableOpacity>
+
+                    <View style={styles.iconRow}>
+                        <View style={styles.roundIcon}>
+                            <Text style={styles.iconEmoji}>💸</Text>
+                        </View>
                     </View>
-                </TouchableOpacity>
+                </Animated.View>
 
-                <View style={styles.iconRow}>
-                    <View style={styles.roundIcon}>
-                        <Text style={styles.iconEmoji}>💸</Text>
+                {/* Prefill notice */}
+                {(route?.params?.prefill || prefillQuery) ? (
+                    <View style={styles.prefillBanner}>
+                        <Text style={styles.prefillText}>Edit Expense!</Text>
+                        <Text style={styles.prefillText}>Prefilled data, edit fields before saving</Text>
                     </View>
-                </View>
-            </Animated.View>
+                ) : null}
 
-            {/* Prefill notice */}
-            {(route?.params?.prefill || prefillQuery) ? (
-                <View style={styles.prefillBanner}>
-                    <Text style={styles.prefillText}>Edit Expense!</Text>
-                    <Text style={styles.prefillText}>Prefilled data, edit fields before saving</Text>
-                </View>
-            ) : null}
+                <View style={styles.card}>
+                    <Text style={styles.sectionTitle}>Primary Details</Text>
 
-            <View style={styles.card}>
-                <Text style={styles.sectionTitle}>Primary Details</Text>
+                    <View style={styles.row}>
+                        <TextInput
+                            placeholder="Description (e.g., Lunch at cafe)"
+                            style={[styles.input, styles.flexTwo]}
+                            value={description}
+                            onChangeText={setDescription}
+                            multiline={true}
+                        />
+                        <TextInput
+                            placeholder="Amount💵"
+                            keyboardType="numeric"
+                            style={[styles.input, styles.amountInput]}
+                            value={amount}
+                            onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ""))}
+                        />
+                    </View>
 
-                <View style={styles.row}>
-                    <TextInput
-                        placeholder="Description (e.g., Lunch at cafe)"
-                        style={[styles.input, styles.flexTwo]}
-                        value={description}
-                        onChangeText={setDescription}
-                        multiline={true}
-                    />
-                    <TextInput
-                        placeholder="Amount💵"
-                        keyboardType="numeric"
-                        style={[styles.input, styles.amountInput]}
-                        value={amount}
-                        onChangeText={(t) => setAmount(t.replace(/[^0-9.]/g, ""))}
-                    />
-                </View>
+                    <TouchableOpacity style={styles.extrasToggle} onPress={toggleExtras}>
+                        <Text style={styles.extrasToggleText}>{extrasOpen ? "Hide extras ▲" : "Show extras ▼"}</Text>
+                    </TouchableOpacity>
 
-                <TouchableOpacity style={styles.extrasToggle} onPress={toggleExtras}>
-                    <Text style={styles.extrasToggleText}>{extrasOpen ? "Hide extras ▲" : "Show extras ▼"}</Text>
-                </TouchableOpacity>
+                    {extrasOpen && (
+                        <View style={styles.extrasWrap}>
+                            <Text style={styles.fieldLabel}>Category</Text>
+                            <View style={styles.pickerRow}>
+                                {CATEGORIES.map((c) => {
+                                    const active = c === category;
+                                    return (
+                                        <Pressable
+                                            key={c}
+                                            onPress={() => setCategory(c)}
+                                            style={[styles.pickerChip, active && styles.pickerChipActive]}
+                                        >
+                                            <Text style={[styles.pickerChipText, active && styles.pickerChipTextActive]}>
+                                                {c}
+                                            </Text>
+                                        </Pressable>
+                                    );
+                                })}
+                            </View>
 
-                {extrasOpen && (
-                    <View style={styles.extrasWrap}>
-                        <Text style={styles.fieldLabel}>Category</Text>
-                        <View style={styles.pickerRow}>
-                            {CATEGORIES.map((c) => {
-                                const active = c === category;
-                                return (
-                                    <Pressable
-                                        key={c}
-                                        onPress={() => setCategory(c)}
-                                        style={[styles.pickerChip, active && styles.pickerChipActive]}
-                                    >
-                                        <Text style={[styles.pickerChipText, active && styles.pickerChipTextActive]}>
-                                            {c}
-                                        </Text>
-                                    </Pressable>
-                                );
-                            })}
-                        </View>
+                            <Text style={styles.fieldLabel}>Payment Method</Text>
+                            <View style={styles.pickerRow}>
+                                {PAYMENT_METHODS.map((p) => {
+                                    const active = p === paymentMethod;
+                                    return (
+                                        <Pressable
+                                            key={p}
+                                            onPress={() => setPaymentMethod(p)}
+                                            style={[styles.pickerChip, active && styles.pickerChipActive]}
+                                        >
+                                            <Text style={[styles.pickerChipText, active && styles.pickerChipTextActive]}>
+                                                {p}
+                                            </Text>
+                                        </Pressable>
+                                    );
+                                })}
+                            </View>
 
-                        <Text style={styles.fieldLabel}>Payment Method</Text>
-                        <View style={styles.pickerRow}>
-                            {PAYMENT_METHODS.map((p) => {
-                                const active = p === paymentMethod;
-                                return (
-                                    <Pressable
-                                        key={p}
-                                        onPress={() => setPaymentMethod(p)}
-                                        style={[styles.pickerChip, active && styles.pickerChipActive]}
-                                    >
-                                        <Text style={[styles.pickerChipText, active && styles.pickerChipTextActive]}>
-                                            {p}
-                                        </Text>
-                                    </Pressable>
-                                );
-                            })}
-                        </View>
+                            <Text style={styles.fieldLabel}>Tags</Text>
+                            <View style={styles.tagsRow}>
+                                {TAGS.map((t) => {
+                                    const active = selectedTags.includes(t);
+                                    return (
+                                        <Pressable
+                                            key={t}
+                                            onPress={() => toggleTag(t)}
+                                            style={[styles.tagChip, active && styles.tagChipActive]}
+                                        >
+                                            <Text style={[styles.tagText, active && styles.tagTextActive]}>{t}</Text>
+                                        </Pressable>
+                                    );
+                                })}
+                            </View>
 
-                        <Text style={styles.fieldLabel}>Tags</Text>
-                        <View style={styles.tagsRow}>
-                            {TAGS.map((t) => {
-                                const active = selectedTags.includes(t);
-                                return (
-                                    <Pressable
-                                        key={t}
-                                        onPress={() => toggleTag(t)}
-                                        style={[styles.tagChip, active && styles.tagChipActive]}
-                                    >
-                                        <Text style={[styles.tagText, active && styles.tagTextActive]}>{t}</Text>
-                                    </Pressable>
-                                );
-                            })}
-                        </View>
+                            <Text style={styles.fieldLabel}>Photo</Text>
+                            <View style={styles.photoRow}>
+                                <TouchableOpacity style={styles.photoBox} onPress={pickImage}>
+                                    {photoUri ? (
+                                        <Image source={{ uri: photoUri }} style={styles.photo} />
+                                    ) : (
+                                        <Text style={styles.photoPlaceholder}>📷 Add photo</Text>
+                                    )}
+                                </TouchableOpacity>
 
-                        <Text style={styles.fieldLabel}>Photo</Text>
-                        <View style={styles.photoRow}>
-                            <TouchableOpacity style={styles.photoBox} onPress={pickImage}>
-                                {photoUri ? (
-                                    <Image source={{ uri: photoUri }} style={styles.photo} />
-                                ) : (
-                                    <Text style={styles.photoPlaceholder}>📷 Add photo</Text>
-                                )}
-                            </TouchableOpacity>
-
-                            <View style={styles.metaColumn}>
-                                <Text style={styles.hintText}>Attach receipt or quick photo</Text>
-                                <Text style={styles.hintSub}>
-                                    Photos can help with proof and later OCR (if integrated)
-                                </Text>
+                                <View style={styles.metaColumn}>
+                                    <Text style={styles.hintText}>Attach receipt or quick photo</Text>
+                                    <Text style={styles.hintSub}>
+                                        Photos can help with proof and later OCR (if integrated)
+                                    </Text>
+                                </View>
                             </View>
                         </View>
-                    </View>
+                    )}
+
+                    <TouchableOpacity style={[styles.addButton, saving && { opacity: 0.7 }]} onPress={submitExpense} disabled={saving}>
+                        <Text style={styles.addButtonText}>{saving ? "Saving..." : ((route?.params?.prefill || prefillQuery) ? "Edit Expense" : "➕ Add Expense")}</Text>
+                    </TouchableOpacity>
+                </View>
+
+                {showDatePicker && (
+                    <DateTimePicker
+                        value={date}
+                        mode="date"
+                        display={Platform.OS === "ios" ? "spinner" : "default"}
+                        onChange={onChangeDate}
+                    />
+                )}
+                {showTimePicker && (
+                    <DateTimePicker
+                        value={date}
+                        mode="time"
+                        display={Platform.OS === "ios" ? "spinner" : "default"}
+                        onChange={onChangeTime}
+                    />
                 )}
 
-                <TouchableOpacity style={[styles.addButton, saving && { opacity: 0.7 }]} onPress={submitExpense} disabled={saving}>
-                    <Text style={styles.addButtonText}>{saving ? "Saving..." : ((route?.params?.prefill || prefillQuery) ? "Edit Expense" : "➕ Add Expense")}</Text>
-                </TouchableOpacity>
-            </View>
-
-            {showDatePicker && (
-                <DateTimePicker
-                    value={date}
-                    mode="date"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    onChange={onChangeDate}
-                />
-            )}
-            {showTimePicker && (
-                <DateTimePicker
-                    value={date}
-                    mode="time"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    onChange={onChangeTime}
-                />
-            )}
-
-            {/* Quick-time button row */}
-            <View style={styles.quickRow}>
-                <TouchableOpacity onPress={() => setShowDatePicker(true)} style={styles.quickBtn}>
-                    <Text style={styles.quickText}>Change Date</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setShowTimePicker(true)} style={styles.quickBtn}>
-                    <Text style={styles.quickText}>Change Time</Text>
-                </TouchableOpacity>
-            </View>
-        </ScrollView>
+                {/* quick buttons removed — date/time are changed via the top Date & Time row */}
+            </ScrollView>
+        </SafeAreaView>
     );
 }
 
 const styles = StyleSheet.create({
+    safe: { flex: 1, backgroundColor: "#f7f9fc" },
+    heading: { textAlign: "center", fontSize: 20, fontWeight: "900", marginVertical: 12, color: "#111827" },
     container: {
         padding: 18,
-        backgroundColor: "#f7f9fc",
         minHeight: "100%",
     },
     header: {
