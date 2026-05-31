@@ -7,7 +7,6 @@ import {
     FlatList,
     PermissionsAndroid,
     Platform,
-    SafeAreaView,
     StyleSheet,
     Text,
     TouchableOpacity,
@@ -19,6 +18,7 @@ import { db } from "./firebase";
 // NEW: navigation helpers
 import { useNavigation } from "@react-navigation/native";
 import { router } from "expo-router";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 /**
  * MessagesInboxScreen
@@ -39,6 +39,7 @@ type SmsItem = {
 
 type ParsedExpense = {
     amount: number;
+    type: "debit" | "credit";
     date?: Date;
     description?: string;
     tags?: string[];
@@ -90,7 +91,7 @@ export default function MessagesInboxScreen() {
         // simple filter: inbox, latest 200 messages
         const filter = {
             box: "inbox",
-            maxCount: 200,
+            maxCount: 50,
         };
 
         SmsAndroid.list(
@@ -106,7 +107,7 @@ export default function MessagesInboxScreen() {
                     // Normalize and keep messages that look like they contain an amount or keywords
                     const candidates = arr
                         .map((s) => ({ _id: String(s._id || s.date || `${s.address}_${s.date}`), address: s.address, body: s.body || "", date: Number(s.date) || Date.now() }))
-                        .filter((s) => /₹|rs\.?|inr|paid|spent|debited|credited|order|txn|transaction|amount/i.test(s.body))
+                        .filter((s) => /₹|rs\.?|inr|paid|spent|debited|credited|received|order|txn|transaction|amount/i.test(s.body))
                         .slice(0, 150);
                     setSmsList(candidates);
                 } catch (e) {
@@ -138,6 +139,7 @@ export default function MessagesInboxScreen() {
             const payload: any = {
                 date: p?.date ? p.date : new Date(sms.date),
                 amount: p?.amount ?? 0,
+                type: p?.type ?? "debit",
                 description: p?.description ?? `${sms.address}: ${sms.body.slice(0, 180)}`,
                 category: "Uncategorized",
                 paymentMethod: null,
@@ -163,6 +165,7 @@ export default function MessagesInboxScreen() {
     async function openAddDetailed(sms: SmsItem, p: ParsedExpense | null) {
         const prefill = {
             amount: p?.amount ?? 0,
+            type: p?.type ?? "debit",
             date: (p?.date ?? new Date(sms.date)).toISOString(),
             description: p?.description ?? `${sms.address}: ${sms.body.slice(0, 180)}`,
             source: "sms",
@@ -249,15 +252,17 @@ export default function MessagesInboxScreen() {
                             <View style={styles.parsedRow}>
                                 <View style={styles.parsedCol}>
                                     <Text style={styles.parsedLabel}>Amount</Text>
-                                    <Text style={styles.parsedValue}>₹{p?.amount ? p.amount.toFixed(2) : "--"}</Text>
+                                    <Text style={[styles.parsedValue, p?.type === "credit" ? { color: "#10b981" } : { color: "#ef4444" }]}>
+                                        {p?.type === "credit" ? "+" : "-"}₹{p?.amount ? p.amount.toFixed(2) : "--"}
+                                    </Text>
+                                </View>
+                                <View style={styles.parsedCol}>
+                                    <Text style={styles.parsedLabel}>Type</Text>
+                                    <Text style={styles.parsedValue}>{p?.type === "credit" ? "🟢 Credit" : "🔴 Debit"}</Text>
                                 </View>
                                 <View style={styles.parsedCol}>
                                     <Text style={styles.parsedLabel}>Date</Text>
                                     <Text style={styles.parsedValue}>{p?.date ? p.date.toLocaleDateString() : new Date(s.date).toLocaleDateString()}</Text>
-                                </View>
-                                <View style={styles.parsedCol}>
-                                    <Text style={styles.parsedLabel}>Desc</Text>
-                                    <Text style={styles.parsedValue} numberOfLines={1}>{p?.description ?? "—"}</Text>
                                 </View>
                             </View>
 
@@ -336,11 +341,15 @@ function parseMessageToExpense(m: { text: string; receivedAt: Date }): ParsedExp
         }
     }
 
+    const isCredit = /credited|received|added|deposited|refunded/i.test(txt);
+    const type = isCredit ? "credit" : "debit";
+
     const description = txt.slice(0, 220).replace(/\s+/g, " ").trim();
 
     if (!amount && !description) return null;
     return {
         amount: amount || 0,
+        type,
         date: date ?? m.receivedAt,
         description: description || undefined,
         tags: guessTagsFromText(txt),

@@ -7,6 +7,8 @@ and also add any other dashboards which can be useful with drill down features.
 and also make the drill down screens a bit more modern and attractive and when cliked on outside the modal or back button the modal should close
 add manage subscriptions tab as well.
 
+.filter((s) => /₹|rs\.?|inr|paid|spent|debited|credited|order|txn|transaction|amount/i.test(s.body))
+
 for generating release apk and install in mobile.
 npx expo prebuild
 npx expo run:android --variant release

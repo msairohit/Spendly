@@ -1,5 +1,7 @@
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useNavigation, useRoute } from "@react-navigation/native";
+import { documentDirectory, writeAsStringAsync } from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { useSearchParams } from "expo-router";
 import {
     collection,
@@ -29,6 +31,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "./AuthProvider";
 import { db } from "./firebase";
+import { formatIndianCurrency } from "./utils/format";
 
 /**
  * ExpensesScreen (updated)
@@ -43,6 +46,7 @@ type Expense = {
     date: Date;
     description: string;
     amount: number;
+    type?: "debit" | "credit";
     category?: string;
     paymentMethod?: string | null;
     tags?: string[];
@@ -122,6 +126,7 @@ export default function ExpensesScreen() {
         from: "",
         to: "",
         search: "",
+        type: "",
     });
     // picker state for filter From/To (sequential date -> time)
     const [fromTemp, setFromTemp] = useState<Date | null>(null);
@@ -208,6 +213,7 @@ export default function ExpensesScreen() {
                         date: dateField,
                         description: data.description || "",
                         amount: typeof data.amount === "number" ? data.amount : parseFloat(data.amount || "0"),
+                        type: data.type || "debit",
                         category: data.category,
                         paymentMethod: data.paymentMethod,
                         tags: data.tags || [],
@@ -252,6 +258,7 @@ export default function ExpensesScreen() {
                     if (e.date > cap) return false;
                 }
             }
+            if (f.type && f.type !== "all" && (e.type || "debit") !== f.type) return false;
             return true;
         });
     }, [expenses, filters]);
@@ -270,13 +277,17 @@ export default function ExpensesScreen() {
         return arr;
     }, [filtered]);
 
-    // monthly aggregates (with nice label)
+    // monthly aggregates
     const monthly = useMemo(() => {
-        const agg = new Map<string, { total: number; count: number; monthDate: Date }>();
+        const agg = new Map<string, { totalDebits: number; totalCredits: number; count: number; monthDate: Date }>();
         filtered.forEach((e) => {
-            const key = `${e.date.getFullYear()}-${String(e.date.getMonth()).padStart(2, "0")}`; // use month index
-            const cur = agg.get(key) || { total: 0, count: 0, monthDate: new Date(e.date.getFullYear(), e.date.getMonth(), 1) };
-            cur.total += e.amount;
+            const key = `${e.date.getFullYear()}-${String(e.date.getMonth()).padStart(2, "0")}`;
+            const cur = agg.get(key) || { totalDebits: 0, totalCredits: 0, count: 0, monthDate: new Date(e.date.getFullYear(), e.date.getMonth(), 1) };
+            if (e.type === "credit") {
+                cur.totalCredits += e.amount;
+            } else {
+                cur.totalDebits += e.amount;
+            }
             cur.count += 1;
             agg.set(key, cur);
         });
@@ -285,14 +296,18 @@ export default function ExpensesScreen() {
             .sort((a, b) => (a.monthDate < b.monthDate ? 1 : -1));
     }, [filtered]);
 
-    // weekly aggregates (start/end dates)
+    // weekly aggregates
     const weekly = useMemo(() => {
-        const agg = new Map<string, { total: number; count: number; start: Date; end: Date }>();
+        const agg = new Map<string, { totalDebits: number; totalCredits: number; count: number; start: Date; end: Date }>();
         filtered.forEach((e) => {
             const s = startOfWeek(e.date);
             const key = s.toISOString().slice(0, 10);
-            const cur = agg.get(key) || { total: 0, count: 0, start: new Date(s), end: endOfWeek(s) };
-            cur.total += e.amount;
+            const cur = agg.get(key) || { totalDebits: 0, totalCredits: 0, count: 0, start: new Date(s), end: endOfWeek(s) };
+            if (e.type === "credit") {
+                cur.totalCredits += e.amount;
+            } else {
+                cur.totalDebits += e.amount;
+            }
             cur.count += 1;
             agg.set(key, cur);
         });
@@ -302,7 +317,7 @@ export default function ExpensesScreen() {
     }, [filtered]);
 
     function clearFilters() {
-        setFilters({ category: "", paymentMethod: "", tag: "", from: "", to: "", search: "" });
+        setFilters({ category: "", paymentMethod: "", tag: "", from: "", to: "", search: "", type: "" });
     }
     // human friendly summary of active filters
     const filterSummary = useMemo(() => {
@@ -325,6 +340,7 @@ export default function ExpensesScreen() {
                 if (td) parts.push(`To: ${td.toLocaleString()}`);
             } catch { }
         }
+        if (filters.type) parts.push(`Type: ${filters.type}`);
         return parts.join(" • ");
     }, [filters]);
 
@@ -380,6 +396,7 @@ export default function ExpensesScreen() {
         const prefill = {
             id: exp.id,
             amount: exp.amount,
+            type: exp.type || "debit",
             date: exp.date.toISOString(),
             description: exp.description,
             category: exp.category,
@@ -431,6 +448,71 @@ export default function ExpensesScreen() {
         ]);
     }
 
+    // Export to CSV logic
+    const handleExport = async (data: Expense[], label: string) => {
+        if (data.length === 0) {
+            Alert.alert("No Data", "There are no expenses to export.");
+            return;
+        }
+
+        try {
+            // Headers: Date, Description, Amount, Type, Category, Payment Method, Tags
+            const headers = ["Date", "Description", "Amount", "Type", "Category", "Payment Method", "Tags"];
+            const rows = data.map((e) => {
+                const dateStr = e.date instanceof Date ? e.date.toISOString() : new Date(e.date).toISOString();
+                const descStr = `"${(e.description || "").replace(/"/g, '""')}"`;
+                const catStr = `"${(e.category || "").replace(/"/g, '""')}"`;
+                const payStr = `"${(e.paymentMethod || "").replace(/"/g, '""')}"`;
+                const tagsStr = `"${(e.tags || []).join(", ").replace(/"/g, '""')}"`;
+                return [
+                    dateStr,
+                    descStr,
+                    e.amount,
+                    e.type || "debit",
+                    catStr,
+                    payStr,
+                    tagsStr
+                ];
+            });
+
+            const csvContent = [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+            const filename = `spendly_export_${label.toLowerCase().replace(/\s+/g, "_")}_${Date.now()}.csv`;
+            const fileUri = `${documentDirectory}${filename}`;
+
+            await writeAsStringAsync(fileUri, csvContent, { encoding: "utf8" });
+
+            if (await Sharing.isAvailableAsync()) {
+                await Sharing.shareAsync(fileUri, { mimeType: "text/csv", dialogTitle: `Export ${label}` });
+            } else {
+                Alert.alert("Sharing Not Available", "Sharing is not available on this platform/device.");
+            }
+        } catch (error) {
+            console.error("Export error:", error);
+            Alert.alert("Export Failed", "An error occurred while generating the CSV file.");
+        }
+    };
+
+    const triggerExportOptions = () => {
+        Alert.alert(
+            "Export Expenses",
+            "Choose which expenses you want to export as a CSV sheet (fully compatible with Excel/Sheets):",
+            [
+                {
+                    text: `Export Current View (${filtered.length})`,
+                    onPress: () => handleExport(filtered, "Filtered View"),
+                },
+                {
+                    text: `Export All (${expenses.length})`,
+                    onPress: () => handleExport(expenses, "All Expenses"),
+                },
+                {
+                    text: "Cancel",
+                    style: "cancel",
+                },
+            ]
+        );
+    };
+
     return (
         <SafeAreaView style={styles.safe}>
             <View style={styles.header}>
@@ -466,22 +548,27 @@ export default function ExpensesScreen() {
                                 <Text style={styles.sectionHeaderText}>{title}</Text>
                             </View>
                         )}
-                        renderItem={({ item }) => (
-                            <TouchableOpacity onPress={() => setSelectedExpense(item)}>
-                                <View style={styles.rowCard}>
-                                    <View style={styles.rowLeft}>
-                                        <Text style={styles.amount}>₹{item.amount.toFixed(2)}</Text>
-                                        <Text style={styles.small}>{item.category}</Text>
+                        renderItem={({ item }) => {
+                            const isCredit = item.type === "credit";
+                            return (
+                                <TouchableOpacity onPress={() => setSelectedExpense(item)}>
+                                    <View style={styles.rowCard}>
+                                        <View style={styles.rowLeft}>
+                                            <Text style={[styles.amount, isCredit ? styles.amountCredit : styles.amountDebit]}>
+                                                {isCredit ? "+" : "-"}₹{formatIndianCurrency(item.amount, 2)}
+                                            </Text>
+                                            <Text style={styles.small}>{item.category}</Text>
+                                        </View>
+                                        <View style={styles.rowRight}>
+                                            <Text style={styles.desc}>{item.description}</Text>
+                                            <Text style={styles.muted}>
+                                                {item.date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} • {item.tags?.join(", ")}
+                                            </Text>
+                                        </View>
                                     </View>
-                                    <View style={styles.rowRight}>
-                                        <Text style={styles.desc}>{item.description}</Text>
-                                        <Text style={styles.muted}>
-                                            {item.date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} • {item.tags?.join(", ")}
-                                        </Text>
-                                    </View>
-                                </View>
-                            </TouchableOpacity>
-                        )}
+                                </TouchableOpacity>
+                            );
+                        }}
                         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
                         contentContainerStyle={{ paddingBottom: 80 }}
                     />
@@ -491,20 +578,25 @@ export default function ExpensesScreen() {
                     <FlatList
                         data={[...filtered].sort((a, b) => b.date.getTime() - a.date.getTime())}
                         keyExtractor={(i) => i.id}
-                        renderItem={({ item }) => (
-                            <TouchableOpacity onPress={() => setSelectedExpense(item)}>
-                                <View style={styles.rowCard}>
-                                    <View style={styles.rowLeft}>
-                                        <Text style={styles.amount}>₹{item.amount.toFixed(2)}</Text>
-                                        <Text style={styles.small}>{item.date.toDateString()}</Text>
+                        renderItem={({ item }) => {
+                            const isCredit = item.type === "credit";
+                            return (
+                                <TouchableOpacity onPress={() => setSelectedExpense(item)}>
+                                    <View style={styles.rowCard}>
+                                        <View style={styles.rowLeft}>
+                                            <Text style={[styles.amount, isCredit ? styles.amountCredit : styles.amountDebit]}>
+                                                {isCredit ? "+" : "-"}₹{formatIndianCurrency(item.amount, 2)}
+                                            </Text>
+                                            <Text style={styles.small}>{item.date.toDateString()}</Text>
+                                        </View>
+                                        <View style={styles.rowRight}>
+                                            <Text style={styles.desc}>{item.description}</Text>
+                                            <Text style={styles.muted}>{item.category} • {item.tags?.join(", ")}</Text>
+                                        </View>
                                     </View>
-                                    <View style={styles.rowRight}>
-                                        <Text style={styles.desc}>{item.description}</Text>
-                                        <Text style={styles.muted}>{item.category} • {item.tags?.join(", ")}</Text>
-                                    </View>
-                                </View>
-                            </TouchableOpacity>
-                        )}
+                                </TouchableOpacity>
+                            );
+                        }}
                         ItemSeparatorComponent={() => <View style={{ height: 8 }} />}
                         contentContainerStyle={{ paddingBottom: 80 }}
                     />
@@ -517,6 +609,7 @@ export default function ExpensesScreen() {
                             const end = endOfMonth(m.monthDate);
                             const startISO = toLocalISO(start);
                             const endISO = toLocalISO(end);
+                            const net = m.totalCredits - m.totalDebits;
                             return (
                                 <TouchableOpacity
                                     key={m.key}
@@ -529,7 +622,13 @@ export default function ExpensesScreen() {
                                     <View style={styles.aggregateCard}>
                                         <Text style={styles.aggregateTitle}>{monthLabel(m.monthDate)}</Text>
                                         <Text style={styles.aggregateRange}>{formatShortDate(start)} - {formatShortDate(end)}</Text>
-                                        <Text style={styles.aggregateAmount}>₹{m.total.toFixed(2)}</Text>
+                                        <View style={styles.aggValuesRow}>
+                                            <Text style={styles.aggDebitText}>Debited: ₹{formatIndianCurrency(m.totalDebits, 2)}</Text>
+                                            <Text style={styles.aggCreditText}>Credited: ₹{formatIndianCurrency(m.totalCredits, 2)}</Text>
+                                        </View>
+                                        <Text style={[styles.aggregateAmount, net >= 0 ? styles.aggNetPositive : styles.aggNetNegative]}>
+                                            Net: {net >= 0 ? "+" : "-"}₹{formatIndianCurrency(Math.abs(net), 2)}
+                                        </Text>
                                         <Text style={styles.muted}>{m.count} items — tap to view</Text>
                                     </View>
                                 </TouchableOpacity>
@@ -541,24 +640,33 @@ export default function ExpensesScreen() {
 
                 {viewMode === "weekly" && (
                     <ScrollView contentContainerStyle={{ paddingBottom: 120 }}>
-                        {weekly.map((w) => (
-                            <TouchableOpacity
-                                key={w.key}
-                                activeOpacity={0.85}
-                                onPress={() => {
-                                    const startISO = toLocalISO(w.start);
-                                    const endISO = toLocalISO(w.end);
-                                    setFilters((s) => ({ ...s, from: startISO, to: endISO }));
-                                    setViewMode("timeline");
-                                }}
-                            >
-                                <View style={styles.aggregateCard}>
-                                    <Text style={styles.aggregateTitle}>{formatShortDate(w.start)} — {formatShortDate(w.end)}</Text>
-                                    <Text style={styles.aggregateAmount}>₹{w.total.toFixed(2)}</Text>
-                                    <Text style={styles.muted}>{w.count} items — tap to view</Text>
-                                </View>
-                            </TouchableOpacity>
-                        ))}
+                        {weekly.map((w) => {
+                            const net = w.totalCredits - w.totalDebits;
+                            return (
+                                <TouchableOpacity
+                                    key={w.key}
+                                    activeOpacity={0.85}
+                                    onPress={() => {
+                                        const startISO = toLocalISO(w.start);
+                                        const endISO = toLocalISO(w.end);
+                                        setFilters((s) => ({ ...s, from: startISO, to: endISO }));
+                                        setViewMode("timeline");
+                                    }}
+                                >
+                                    <View style={styles.aggregateCard}>
+                                        <Text style={styles.aggregateTitle}>{formatShortDate(w.start)} — {formatShortDate(w.end)}</Text>
+                                        <View style={styles.aggValuesRow}>
+                                            <Text style={styles.aggDebitText}>Debited: ₹{formatIndianCurrency(w.totalDebits, 2)}</Text>
+                                            <Text style={styles.aggCreditText}>Credited: ₹{formatIndianCurrency(w.totalCredits, 2)}</Text>
+                                        </View>
+                                        <Text style={[styles.aggregateAmount, net >= 0 ? styles.aggNetPositive : styles.aggNetNegative]}>
+                                            Net: {net >= 0 ? "+" : "-"}₹{formatIndianCurrency(Math.abs(net), 2)}
+                                        </Text>
+                                        <Text style={styles.muted}>{w.count} items — tap to view</Text>
+                                    </View>
+                                </TouchableOpacity>
+                            );
+                        })}
                         {weekly.length === 0 && <Text style={styles.emptyText}>No data for weekly view, clear filters to see all results!</Text>}
                     </ScrollView>
                 )}
@@ -570,7 +678,7 @@ export default function ExpensesScreen() {
                             <Text style={styles.calendarTitle}>{monthLabel(new Date(calYear, calMonth, 1))}</Text>
                             <TouchableOpacity onPress={nextMonth} style={styles.navBtn}><Text style={styles.navText}>▶</Text></TouchableOpacity>
                         </View>
-                        <Text style={styles.hint}>Tap a date to view that day's expenses</Text>
+                        <Text style={styles.hint}>Tap a date to view that day&apos;s expenses</Text>
                         {renderCalendarGrid(calYear, calMonth, filtered)}
                     </ScrollView>
                 )}
@@ -582,6 +690,24 @@ export default function ExpensesScreen() {
                         <TouchableWithoutFeedback>
                             <View style={styles.modalCard}>
                                 <Text style={styles.modalTitle}>Filters</Text>
+
+                                <Text style={styles.fieldLabel}>Entry Type</Text>
+                                <View style={styles.typeSelectorRow}>
+                                    {["all", "debit", "credit"].map((t) => (
+                                        <TouchableOpacity
+                                            key={t}
+                                            onPress={() => setFilters((s) => ({ ...s, type: t === "all" ? "" : t }))}
+                                            style={[
+                                                styles.typeFilterBtn,
+                                                (filters.type || "all") === (t === "all" ? "" : t) ? styles.typeFilterBtnActive : styles.typeFilterBtnInactive
+                                            ]}
+                                        >
+                                            <Text style={[styles.typeFilterText, (filters.type || "all") === (t === "all" ? "" : t) && styles.typeFilterTextActive]}>
+                                                {t.toUpperCase()}
+                                            </Text>
+                                        </TouchableOpacity>
+                                    ))}
+                                </View>
 
                                 <TextInput placeholder="Search description" style={styles.input} value={filters.search} onChangeText={(t) => setFilters((s) => ({ ...s, search: t }))} />
                                 <TextInput placeholder="Category (exact)" style={styles.input} value={filters.category} onChangeText={(t) => setFilters((s) => ({ ...s, category: t }))} />
@@ -685,8 +811,12 @@ export default function ExpensesScreen() {
                                 <Text style={styles.modalTitle}>Expense details</Text>
                                 {selectedExpense && (
                                     <>
-                                        <Text style={styles.detailAmount}>₹{selectedExpense.amount.toFixed(2)}</Text>
-                                        <Text style={styles.detailWhen}>{selectedExpense.date.toLocaleString()}</Text>
+                                        <Text style={[styles.detailAmount, selectedExpense.type === "credit" ? styles.amountCredit : styles.amountDebit]}>
+                                            {selectedExpense.type === "credit" ? "+" : "-"}₹{formatIndianCurrency(selectedExpense.amount, 2)}
+                                        </Text>
+                                        <Text style={styles.detailWhen}>
+                                            {selectedExpense.date.toLocaleString()} • {selectedExpense.type === "credit" ? "🟢 Credit (Income)" : "🔴 Debit (Expense)"}
+                                        </Text>
                                         <Text style={styles.detailLabel}>Description</Text>
                                         <Text style={styles.detailText}>{selectedExpense.description}</Text>
 
@@ -732,6 +862,11 @@ export default function ExpensesScreen() {
                     </View>
                 </TouchableWithoutFeedback>
             </Modal>
+
+            {/* Floating Action Button for Export */}
+            <TouchableOpacity style={styles.fab} onPress={triggerExportOptions} activeOpacity={0.85}>
+                <Text style={styles.fabText}>📥 Export</Text>
+            </TouchableOpacity>
         </SafeAreaView>
     );
 
@@ -741,12 +876,17 @@ export default function ExpensesScreen() {
         const startDay = (first.getDay() + 6) % 7; // Monday = 0
         const daysInMonth = new Date(year, month + 1, 0).getDate();
 
-        // aggregate totals for month
-        const totals: Record<number, number> = {};
+        // aggregate net totals for month
+        const totals: Record<number, { debits: number; credits: number }> = {};
         list.forEach((e) => {
             if (e.date.getFullYear() === year && e.date.getMonth() === month) {
                 const d = e.date.getDate();
-                totals[d] = (totals[d] || 0) + e.amount;
+                if (!totals[d]) totals[d] = { debits: 0, credits: 0 };
+                if (e.type === "credit") {
+                    totals[d].credits += e.amount;
+                } else {
+                    totals[d].debits += e.amount;
+                }
             }
         });
 
@@ -761,12 +901,18 @@ export default function ExpensesScreen() {
 
         // days
         for (let d = 1; d <= daysInMonth; d++) {
-            const total = totals[d];
+            const dayData = totals[d] || { debits: 0, credits: 0 };
+            const net = dayData.credits - dayData.debits;
+            const hasActivity = dayData.credits > 0 || dayData.debits > 0;
             cells.push(
                 <TouchableOpacity key={d} style={styles.calendarCellTouchable} onPress={() => onCalendarDatePress(d)} activeOpacity={0.8}>
                     <View style={styles.calendarCell}>
                         <Text style={styles.calendarDate}>{d}</Text>
-                        <Text style={styles.calendarAmount}>{total ? `₹${total.toFixed(0)}` : ""}</Text>
+                        {hasActivity && (
+                            <Text style={[styles.calendarAmount, net >= 0 ? styles.amountCredit : styles.amountDebit]}>
+                                {net >= 0 ? "+" : "-"}₹{formatIndianCurrency(Math.abs(net), 0)}
+                            </Text>
+                        )}
                     </View>
                 </TouchableOpacity>
             );
@@ -976,4 +1122,43 @@ const styles = StyleSheet.create({
     primaryBtnTextSmall: { color: "#fff" },
 
     emptyTitle: { color: "#fff", fontWeight: "800" },
+
+    amountCredit: { color: "#10b981" },
+    amountDebit: { color: "#ef4444" },
+    aggValuesRow: { flexDirection: "row", gap: 10, marginTop: 6 },
+    aggDebitText: { color: "#ef4444", fontSize: 13, fontWeight: "600" },
+    aggCreditText: { color: "#10b981", fontSize: 13, fontWeight: "600" },
+    aggNetPositive: { color: "#10b981" },
+    aggNetNegative: { color: "#ef4444" },
+    fieldLabel: { color: "#374151", fontWeight: "700", marginBottom: 6 },
+    typeSelectorRow: { flexDirection: "row", gap: 8, marginBottom: 12 },
+    typeFilterBtn: { flex: 1, paddingVertical: 8, borderRadius: 8, borderWidth: 1, alignItems: "center" },
+    typeFilterBtnInactive: { backgroundColor: "#f3f4f6", borderColor: "#e5e7eb" },
+    typeFilterBtnActive: { backgroundColor: "#06b6d4", borderColor: "#06b6d4" },
+    typeFilterText: { color: "#6b7280", fontWeight: "700", fontSize: 12 },
+    typeFilterTextActive: { color: "#fff" },
+    fab: {
+        position: "absolute",
+        bottom: 24,
+        right: 24,
+        backgroundColor: "#06b6d4",
+        borderRadius: 28,
+        paddingHorizontal: 20,
+        paddingVertical: 14,
+        flexDirection: "row",
+        alignItems: "center",
+        justifyContent: "center",
+        elevation: 6,
+        shadowColor: "#000",
+        shadowOpacity: 0.2,
+        shadowRadius: 10,
+        shadowOffset: { width: 0, height: 4 },
+        zIndex: 50,
+    },
+    fabText: {
+        color: "#fff",
+        fontWeight: "900",
+        fontSize: 15,
+        marginLeft: 6,
+    },
 });

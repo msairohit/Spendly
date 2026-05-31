@@ -36,9 +36,9 @@ export default function SignUpScreen() {
             </View>
 
             <View style={styles.card}>
-                <TextInput placeholder="Email" keyboardType="email-address" autoCapitalize="none" style={styles.input} value={email} onChangeText={setEmail} />
-                <TextInput placeholder="Password" secureTextEntry style={styles.input} value={password} onChangeText={setPassword} />
-                <TextInput placeholder="Confirm password" secureTextEntry style={styles.input} value={confirm} onChangeText={setConfirm} />
+                <TextInput placeholder="Email" placeholderTextColor="#050505ff" keyboardType="email-address" autoCapitalize="none" style={styles.input} value={email} onChangeText={setEmail} />
+                <TextInput placeholder="Password" placeholderTextColor="#050505ff" secureTextEntry style={styles.input} value={password} onChangeText={setPassword} />
+                <TextInput placeholder="Confirm password" placeholderTextColor="#050505ff" secureTextEntry style={styles.input} value={confirm} onChangeText={setConfirm} />
 
                 <TouchableOpacity style={styles.button} onPress={onSignUp} disabled={busy}>
                     <Text style={styles.buttonText}>{busy ? "Creating..." : "Create account"}</Text>

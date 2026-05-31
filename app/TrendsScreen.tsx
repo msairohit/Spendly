@@ -10,12 +10,14 @@ import { useAuth } from "./AuthProvider";
 import AppHeader from "./components/AppHeader";
 import { db } from "./firebase";
 import { useTheme } from "./theme";
+import { formatIndianCurrency } from "./utils/format";
 
 type Expense = {
     id: string;
     date: Date;
     description: string;
     amount: number;
+    type?: "debit" | "credit";
     category?: string;
     paymentMethod?: string | null;
     tags?: string[];
@@ -96,6 +98,7 @@ export default function TrendsScreen() {
                         date: dateField,
                         description: data.description || "",
                         amount: typeof data.amount === "number" ? data.amount : parseFloat(data.amount || "0"),
+                        type: data.type || "debit",
                         category: data.category || "Uncategorized",
                         paymentMethod: data.paymentMethod,
                         tags: data.tags || [],
@@ -117,18 +120,28 @@ export default function TrendsScreen() {
     const monthsLast12 = useMemo(() => {
         const now = new Date();
         const ref = new Date(Math.min(now.getTime(), Date.now()));
-        const arr: { key: string; label: string; value: number; start: Date; end: Date }[] = [];
+        const arr: { key: string; label: string; debits: number; credits: number; net: number; value: number; start: Date; end: Date }[] = [];
         for (let i = 11; i >= 0; i--) {
             const d = new Date(ref.getFullYear(), ref.getMonth() - i, 1);
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
             const start = new Date(d.getFullYear(), d.getMonth(), 1, 0, 0, 0, 0);
             const end = new Date(d.getFullYear(), d.getMonth() + 1, 0, 23, 59, 59, 999);
-            arr.push({ key, label: d.toLocaleString(undefined, { month: "short" }), value: 0, start, end });
+            arr.push({ key, label: d.toLocaleString(undefined, { month: "short" }), debits: 0, credits: 0, net: 0, value: 0, start, end });
         }
         expenses.forEach((e) => {
             const key = `${e.date.getFullYear()}-${String(e.date.getMonth() + 1).padStart(2, "0")}`;
             const it = arr.find((a) => a.key === key);
-            if (it) it.value += e.amount;
+            if (it) {
+                if (e.type === "credit") {
+                    it.credits += e.amount;
+                } else {
+                    it.debits += e.amount;
+                }
+            }
+        });
+        arr.forEach((it) => {
+            it.net = it.credits - it.debits;
+            it.value = it.debits;
         });
         return arr;
     }, [expenses]);
@@ -145,17 +158,27 @@ export default function TrendsScreen() {
         }
         const ref = new Date(Math.min(now.getTime(), Date.now()));
         const refStart = startOfWeek(ref);
-        const weeks: { key: string; label: string; value: number; start: Date; end: Date }[] = [];
+        const weeks: { key: string; label: string; debits: number; credits: number; net: number; value: number; start: Date; end: Date }[] = [];
         for (let i = 7; i >= 0; i--) {
             const start = new Date(refStart.getFullYear(), refStart.getMonth(), refStart.getDate() - i * 7, 0, 0, 0, 0);
             const end = new Date(start.getTime() + 7 * 24 * 3600 * 1000 - 1);
             const key = start.toISOString().slice(0, 10);
             const label = start.toLocaleDateString(undefined, { month: "short", day: "numeric" });
-            weeks.push({ key, label, value: 0, start, end });
+            weeks.push({ key, label, debits: 0, credits: 0, net: 0, value: 0, start, end });
         }
         expenses.forEach((e) => {
             const idx = weeks.findIndex((w) => e.date >= w.start && e.date <= w.end);
-            if (idx >= 0) weeks[idx].value += e.amount;
+            if (idx >= 0) {
+                if (e.type === "credit") {
+                    weeks[idx].credits += e.amount;
+                } else {
+                    weeks[idx].debits += e.amount;
+                }
+            }
+        });
+        weeks.forEach((w) => {
+            w.net = w.credits - w.debits;
+            w.value = w.debits;
         });
         return weeks;
     }, [expenses]);
@@ -186,24 +209,28 @@ export default function TrendsScreen() {
     }
 
     // Simple animated bar chart with totals displayed above each bar
-    function AnimatedBarChart({ data, onBarPress }: { data: { label: string; key: string; value: number; start: Date; end: Date }[]; onBarPress: (s: Date, e: Date) => void }) {
-        const max = Math.max(...data.map((d) => d.value), 1);
+    function AnimatedBarChart({ data, onBarPress }: { data: { label: string; key: string; value: number; debits: number; credits: number; start: Date; end: Date }[]; onBarPress: (s: Date, e: Date) => void }) {
+        const max = Math.max(...data.map((d) => Math.max(d.debits, d.credits)), 1);
         return (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 12 }}>
                 {data.map((d, i) => {
-                    const height = Math.max(6, Math.round((d.value / max) * 160));
-                    const anim = React.useRef(new Animated.Value(0)).current;
+                    const heightDeb = Math.max(6, Math.round((d.debits / max) * 110));
+                    const heightCre = Math.max(6, Math.round((d.credits / max) * 110));
+                    const animDeb = React.useRef(new Animated.Value(0)).current;
+                    const animCre = React.useRef(new Animated.Value(0)).current;
                     React.useEffect(() => {
-                        Animated.timing(anim, { toValue: height, duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
-                    }, [height]);
+                        Animated.timing(animDeb, { toValue: heightDeb, duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+                        Animated.timing(animCre, { toValue: heightCre, duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: false }).start();
+                    }, [heightDeb, heightCre]);
                     return (
-                        <TouchableOpacity key={d.key} onPress={() => onBarPress(d.start, d.end)} activeOpacity={0.85} style={{ width: 72, alignItems: "center", marginRight: 12 }}>
-                            {/* total label */}
-                            <Text style={{ color: theme.colors.text, fontWeight: "800", marginBottom: 6 }}>{`₹${Math.round(d.value)}`}</Text>
-                            <View style={{ height: 160, justifyContent: "flex-end", width: 56 }}>
-                                <Animated.View style={{ width: 56, height: anim as any, backgroundColor: theme.colors.primary, borderRadius: 8 }} />
+                        <TouchableOpacity key={d.key} onPress={() => onBarPress(d.start, d.end)} activeOpacity={0.85} style={{ width: 84, alignItems: "center", marginRight: 14 }}>
+                            <Text style={{ color: "#10b981", fontWeight: "800", fontSize: 10, marginBottom: 2 }}>{`+₹${formatIndianCurrency(d.credits, 0)}`}</Text>
+                            <Text style={{ color: "#ef4444", fontWeight: "800", fontSize: 10, marginBottom: 6 }}>{`-₹${formatIndianCurrency(d.debits, 0)}`}</Text>
+                            <View style={{ height: 110, flexDirection: "row", gap: 4, alignItems: "flex-end", width: 44 }}>
+                                <Animated.View style={{ width: 20, height: animDeb as any, backgroundColor: "#ef4444", borderRadius: 4 }} />
+                                <Animated.View style={{ width: 20, height: animCre as any, backgroundColor: "#10b981", borderRadius: 4 }} />
                             </View>
-                            <Text numberOfLines={1} style={{ color: theme.colors.muted, marginTop: 8, fontSize: 12, textAlign: "center", width: 72 }}>
+                            <Text numberOfLines={1} style={{ color: theme.colors.muted, marginTop: 8, fontSize: 11, textAlign: "center", width: 84 }}>
                                 {d.label}
                             </Text>
                         </TouchableOpacity>
@@ -244,7 +271,7 @@ export default function TrendsScreen() {
                         Total
                     </SvgText>
                     <SvgText x={radius} y={radius + 18} textAnchor="middle" fontWeight="800" fontSize="12" fill={theme.colors.primary}>
-                        ₹{Math.round(total)}
+                        ₹{formatIndianCurrency(total, 0)}
                     </SvgText>
                 </G>
             </Svg>
@@ -273,9 +300,10 @@ export default function TrendsScreen() {
                         const now = new Date();
                         const curKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
                         const curMonth = monthsLast12.find((m) => m.key === curKey);
-                        const currentTotal = curMonth ? curMonth.value : 0;
-                        const remaining = Math.round(monthlyLimit - currentTotal);
-                        const pct = monthlyLimit > 0 ? Math.min(1, currentTotal / monthlyLimit) : 1;
+                        const currentTotalDebits = curMonth ? curMonth.debits : 0;
+                        const currentTotalCredits = curMonth ? curMonth.credits : 0;
+                        const remaining = Math.round(monthlyLimit - currentTotalDebits);
+                        const pct = monthlyLimit > 0 ? Math.min(1, currentTotalDebits / monthlyLimit) : 1;
                         const size = 120;
                         const thickness = 22;
                         const radius = (size - thickness) / 2;
@@ -291,7 +319,7 @@ export default function TrendsScreen() {
                                                 cx={size / 2}
                                                 cy={size / 2}
                                                 r={radius}
-                                                stroke={currentTotal > monthlyLimit ? "#ef4444" : theme.colors.primary}
+                                                stroke={currentTotalDebits > monthlyLimit ? "#ef4444" : theme.colors.primary}
                                                 strokeWidth={thickness}
                                                 strokeLinecap="round"
                                                 strokeDasharray={`${circumference} ${circumference}`}
@@ -301,7 +329,7 @@ export default function TrendsScreen() {
                                         </G>
                                     </Svg>
                                     <View style={{ position: "absolute", alignItems: "center" }}>
-                                        <Text style={{ color: theme.colors.text, fontWeight: "900" }}>{`₹${Math.round(currentTotal)}`}</Text>
+                                        <Text style={{ color: theme.colors.text, fontWeight: "900" }}>{`₹${formatIndianCurrency(currentTotalDebits, 0)}`}</Text>
                                         <Text style={{ color: theme.colors.muted, fontSize: 12 }}>spent</Text>
                                     </View>
                                 </View>
@@ -322,10 +350,13 @@ export default function TrendsScreen() {
                                     </View>
 
                                     <Text style={{ marginTop: 12, fontSize: 18, fontWeight: "900", color: remaining < 0 ? "#ef4444" : theme.colors.primary }}>
-                                        {remaining < 0 ? `Over by ₹${Math.abs(remaining)}` : `₹${remaining} remaining`}
+                                        {remaining < 0 ? `Over by ₹${formatIndianCurrency(Math.abs(remaining), 0)}` : `₹${formatIndianCurrency(remaining, 0)} remaining`}
                                     </Text>
-                                    <Text style={{ color: theme.colors.muted, marginTop: 6 }}>
-                                        {`Limit: ₹${monthlyLimit.toFixed(0)} • Spent: ₹${Math.round(currentTotal)}`}
+                                    <Text style={{ color: theme.colors.muted, marginTop: 4 }}>
+                                        {`Limit: ₹${formatIndianCurrency(monthlyLimit, 0)} • Spent: ₹${formatIndianCurrency(currentTotalDebits, 0)}`}
+                                    </Text>
+                                    <Text style={{ color: "#10b981", fontWeight: "700", marginTop: 4 }}>
+                                        {`Earned (Credits): ₹${formatIndianCurrency(currentTotalCredits, 0)}`}
                                     </Text>
                                 </View>
                             </View>
@@ -339,7 +370,7 @@ export default function TrendsScreen() {
                         <Text style={[s.blockTitle, { color: theme.colors.text }]}>Last 12 months</Text>
                     </View>
                     <AnimatedBarChart
-                        data={monthsLast12.map((m) => ({ label: m.label, key: m.key, value: m.value, start: m.start, end: m.end }))}
+                        data={monthsLast12.map((m) => ({ label: m.label, key: m.key, value: m.value, debits: m.debits, credits: m.credits, start: m.start, end: m.end }))}
                         onBarPress={(s, e) => goToExpensesRange(s, e)}
                     />
                 </View>
@@ -350,7 +381,7 @@ export default function TrendsScreen() {
                         <Text style={[s.blockTitle, { color: theme.colors.text }]}>Last 8 weeks</Text>
                     </View>
                     <AnimatedBarChart
-                        data={weeksLast8.map((w) => ({ label: w.label, key: w.key, value: w.value, start: w.start, end: w.end }))}
+                        data={weeksLast8.map((w) => ({ label: w.label, key: w.key, value: w.value, debits: w.debits, credits: w.credits, start: w.start, end: w.end }))}
                         onBarPress={(s, e) => goToExpensesRange(s, e)}
                     />
                 </View>

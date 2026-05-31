@@ -33,6 +33,7 @@ export default function SignInScreen() {
             <View style={styles.card}>
                 <TextInput
                     placeholder="Email"
+                    placeholderTextColor="#050505ff"
                     keyboardType="email-address"
                     autoCapitalize="none"
                     style={styles.input}
@@ -41,6 +42,7 @@ export default function SignInScreen() {
                 />
                 <TextInput
                     placeholder="Password"
+                    placeholderTextColor="#050505ff"
                     secureTextEntry
                     style={styles.input}
                     value={password}

@@ -9,11 +9,13 @@ import { useAuth } from "./AuthProvider";
 import AppHeader from "./components/AppHeader";
 import { db } from "./firebase";
 import { useTheme } from "./theme";
+import { formatIndianCurrency } from "./utils/format";
 
 type Expense = {
     id: string;
     date: Date;
     amount: number;
+    type?: "debit" | "credit";
     category?: string;
     tags?: string[];
 };
@@ -63,6 +65,7 @@ export default function CategoryTagTrends() {
 
     const [loading, setLoading] = useState(true);
     const [expenses, setExpenses] = useState<Expense[]>([]);
+    const [activeTab, setActiveTab] = useState<"debit" | "credit">("debit");
 
     useEffect(() => {
         if (!user?.email) {
@@ -94,6 +97,7 @@ export default function CategoryTagTrends() {
                         id: d.id,
                         date: dateField,
                         amount: typeof data.amount === "number" ? data.amount : parseFloat(data.amount || "0"),
+                        type: data.type || "debit",
                         category: data.category || "Uncategorized",
                         tags: data.tags || [],
                     } as Expense;
@@ -114,8 +118,8 @@ export default function CategoryTagTrends() {
     const toDate = parseToLocalDate(toISO, true);
     const filtered = useMemo(() => {
         if (!fromDate || !toDate) return [];
-        return expenses.filter((e) => e.date >= fromDate && e.date <= toDate);
-    }, [expenses, fromDate, toDate]);
+        return expenses.filter((e) => e.date >= fromDate && e.date <= toDate && (e.type || "debit") === activeTab);
+    }, [expenses, fromDate, toDate, activeTab]);
 
     // aggregate top categories
     const categories = useMemo(() => {
@@ -268,6 +272,22 @@ export default function CategoryTagTrends() {
                     )}
                 </View>
 
+                {/* Tab switcher */}
+                <View style={styles.tabRow}>
+                    <TouchableOpacity
+                        style={[styles.tabBtn, activeTab === "debit" && styles.tabBtnActive]}
+                        onPress={() => setActiveTab("debit")}
+                    >
+                        <Text style={[styles.tabText, activeTab === "debit" && styles.tabTextActive]}>🔴 Debits (Expenses)</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                        style={[styles.tabBtn, activeTab === "credit" && styles.tabBtnActive]}
+                        onPress={() => setActiveTab("credit")}
+                    >
+                        <Text style={[styles.tabText, activeTab === "credit" && styles.tabTextActive]}>🟢 Credits (Income)</Text>
+                    </TouchableOpacity>
+                </View>
+
                 <View style={[styles.panel, { backgroundColor: theme.colors.card, marginTop: 12 }]}>
                     <Text style={[styles.sectionTitle, { color: theme.colors.text }]}>Top 5 categories</Text>
                     {categories.length === 0 ? (
@@ -289,7 +309,7 @@ export default function CategoryTagTrends() {
                                 >
                                     <View style={{ flex: 1 }}>
                                         <Text style={[styles.itemTitle, { color: theme.colors.text }]}>{c.category}</Text>
-                                        <Text style={{ color: theme.colors.muted }}>{`₹${c.total.toFixed(2)} • ${pct}%`}</Text>
+                                        <Text style={{ color: theme.colors.muted }}>{`₹${formatIndianCurrency(c.total, 2)} • ${pct}%`}</Text>
                                     </View>
                                     <View style={{ width: 120, height: 20, backgroundColor: theme.colors.surface, borderRadius: 8, overflow: "hidden" }}>
                                         <View style={{ width: `${pct}%`, height: "100%", backgroundColor: theme.colors.primary }} />
@@ -325,7 +345,7 @@ export default function CategoryTagTrends() {
                                             {t.tag}
                                         </Text>
                                         <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
-                                            <Text style={{ color: theme.colors.muted, fontSize: 12 }}>{`₹${t.total.toFixed(0)}`}</Text>
+                                            <Text style={{ color: theme.colors.muted, fontSize: 12 }}>{`₹${formatIndianCurrency(t.total, 0)}`}</Text>
                                         </View>
                                         <View style={{ height: 10, backgroundColor: theme.colors.background, borderRadius: 8, marginTop: 8, overflow: "hidden" }}>
                                             <View style={{ width: `${pct}%`, height: "100%", backgroundColor: color }} />
@@ -375,4 +395,9 @@ const styles = StyleSheet.create({
     row: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 10 },
     itemTitle: { fontWeight: "800" },
     tagCard: { padding: 12, borderRadius: 12, marginBottom: 8, width: "48%" },
+    tabRow: { flexDirection: "row", gap: 10, marginTop: 12, paddingHorizontal: 4 },
+    tabBtn: { flex: 1, paddingVertical: 12, borderRadius: 10, alignItems: "center", backgroundColor: "#fff", borderWidth: 1, borderColor: "#e5e7eb" },
+    tabBtnActive: { backgroundColor: "#0f172a", borderColor: "#0f172a" },
+    tabText: { color: "#4b5563", fontWeight: "700", fontSize: 13 },
+    tabTextActive: { color: "#fff" },
 });

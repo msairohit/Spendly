@@ -1,6 +1,7 @@
 import { router } from "expo-router";
 import { collection, doc, onSnapshot, orderBy, query } from "firebase/firestore";
 import React, { useEffect, useMemo, useState } from "react";
+import { formatIndianCurrency } from "./utils/format";
 import {
     Alert,
     Modal,
@@ -211,12 +212,12 @@ export default function AnalyticsScreen() {
                 <View style={styles.row}>
                     <View style={styles.card}>
                         <Text style={styles.cardLabel}>Total (all time)</Text>
-                        <Text style={styles.cardValue}>₹{totalAllTime.toFixed(2)}</Text>
+                        <Text style={styles.cardValue}>₹{formatIndianCurrency(totalAllTime, 2)}</Text>
                     </View>
                     <View style={styles.card}>
                         <Text style={styles.cardLabel}>Last {daysRange} days</Text>
-                        <Text style={styles.cardValue}>₹{totalRange.toFixed(2)}</Text>
-                        <Text style={styles.cardSub}>avg ₹{avgPerDay.toFixed(2)}/day</Text>
+                        <Text style={styles.cardValue}>₹{formatIndianCurrency(totalRange, 2)}</Text>
+                        <Text style={styles.cardSub}>avg ₹{formatIndianCurrency(avgPerDay, 2)}/day</Text>
                     </View>
                 </View>
 
@@ -277,7 +278,7 @@ export default function AnalyticsScreen() {
                             <View style={[styles.legendDot, { backgroundColor: c.color }]} />
                             <View style={{ flex: 1 }}>
                                 <Text style={styles.catName}>{c.key}</Text>
-                                <Text style={styles.catSub}>₹{c.value.toFixed(2)} • {c.pct.toFixed(1)}%</Text>
+                                <Text style={styles.catSub}>₹{formatIndianCurrency(c.value, 2)} • {c.pct.toFixed(1)}%</Text>
                             </View>
                             <View style={{ width: 120, height: 10, backgroundColor: "#eef2f7", borderRadius: 6, overflow: "hidden" }}>
                                 <View style={{ width: `${Math.min(100, c.pct)}%`, height: 10, backgroundColor: c.color }} />
@@ -290,7 +291,7 @@ export default function AnalyticsScreen() {
                 <View style={[styles.panel, { marginTop: 12, marginBottom: 80 }]}>
                     <Text style={styles.panelTitle}>Quick insights</Text>
                     <Text style={styles.insightText}>- Most spent category: {categoryBreakdown[0]?.key || "—"}</Text>
-                    <Text style={styles.insightText}>- Average daily (range): ₹{avgPerDay.toFixed(2)}</Text>
+                    <Text style={styles.insightText}>- Average daily (range): ₹{formatIndianCurrency(avgPerDay, 2)}</Text>
                     <TouchableOpacity style={[styles.primaryBtn, { marginTop: 12 }]} onPress={() => onExportCSV()}>
                         <Text style={styles.primaryBtnText}>Open CSV (copy)</Text>
                     </TouchableOpacity>

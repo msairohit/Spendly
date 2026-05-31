@@ -65,6 +65,7 @@ export default function AddExpenseScreen() {
 
     const [description, setDescription] = useState("");
     const [amount, setAmount] = useState("");
+    const [type, setType] = useState<"debit" | "credit">("debit");
     const [category, setCategory] = useState<string | null>(null);
     const [paymentMethod, setPaymentMethod] = useState<string | null>(null);
     const [selectedTags, setSelectedTags] = useState<string[]>([]);
@@ -122,6 +123,7 @@ export default function AddExpenseScreen() {
 
                             if (!mounted) return;
                             setEditingId(String(prefill.id));
+                            if (merged.type) setType(merged.type);
                             if (typeof merged.amount !== "undefined") setAmount(String(merged.amount));
                             if (merged.date) {
                                 const d = typeof merged.date === "string" ? new Date(merged.date) : (merged.date?.toDate ? merged.date.toDate() : new Date(merged.date));
@@ -143,6 +145,7 @@ export default function AddExpenseScreen() {
 
                 // Apply simple prefill if no id/doc or fetch failed
                 if (prefill?.id && mounted) setEditingId(String(prefill.id));
+                if (prefill?.type && mounted) setType(prefill.type);
                 if (typeof prefill?.amount !== "undefined" && prefill?.amount !== null && mounted) setAmount(String(prefill.amount));
                 if (prefill?.date && mounted) {
                     const d = new Date(prefill.date);
@@ -220,6 +223,7 @@ export default function AddExpenseScreen() {
             date: date.toISOString(),
             description,
             amount: parseFloat(amount),
+            type,
             category: category || "Uncategorized",
             paymentMethod: paymentMethod || null,
             tags: selectedTags,
@@ -261,10 +265,11 @@ export default function AddExpenseScreen() {
                 console.warn("mark message as processed error", msgErr);
             }
 
-            alert("Expense saved.");
+            alert("Entry saved.");
             // reset
             setDescription("");
             setAmount("");
+            setType("debit");
             setCategory(null);
             setPaymentMethod(null);
             setSelectedTags([]);
@@ -291,7 +296,7 @@ export default function AddExpenseScreen() {
             <StatusBar barStyle={mode === "dark" ? "light-content" : "dark-content"} backgroundColor={theme?.colors?.backgroundDark ?? "#06202a"} />
             <ScrollView contentContainerStyle={styles.container}>
                 {/* Centered main heading */}
-                <Text style={[styles.heading, { color: theme?.colors?.headerText ?? "#fff" }]}>Add / Edit Expense</Text>
+                <Text style={[styles.heading, { color: theme?.colors?.headerText ?? "#fff" }]}>Add / Edit Entry</Text>
 
                 <Animated.View style={[styles.header, { transform: [{ scale: headerScale }] }]}>
                     <TouchableOpacity
@@ -322,11 +327,38 @@ export default function AddExpenseScreen() {
                 ) : null}
 
                 <View style={styles.card}>
-                    <Text style={styles.sectionTitle}>Primary Details</Text>
+                    <Text style={styles.sectionTitle}>Entry Type</Text>
+                    <View style={styles.typeSelectorRow}>
+                        <TouchableOpacity
+                            onPress={() => setType("debit")}
+                            style={[
+                                styles.typeButton,
+                                type === "debit" ? styles.typeButtonDebitActive : styles.typeButtonInactive,
+                            ]}
+                        >
+                            <Text style={[styles.typeButtonText, type === "debit" ? styles.typeButtonTextActive : { color: "#6b7280" }]}>
+                                🔴 Debit (Expense)
+                            </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                            onPress={() => setType("credit")}
+                            style={[
+                                styles.typeButton,
+                                type === "credit" ? styles.typeButtonCreditActive : styles.typeButtonInactive,
+                            ]}
+                        >
+                            <Text style={[styles.typeButtonText, type === "credit" ? styles.typeButtonTextActive : { color: "#6b7280" }]}>
+                                🟢 Credit (Income)
+                            </Text>
+                        </TouchableOpacity>
+                    </View>
+
+                    <Text style={[styles.sectionTitle, { marginTop: 12 }]}>Primary Details</Text>
 
                     <View style={styles.row}>
                         <TextInput
                             placeholder="Description (e.g., Lunch at cafe)"
+                            placeholderTextColor="#050505ff"
                             style={[styles.input, styles.flexTwo]}
                             value={description}
                             onChangeText={setDescription}
@@ -334,6 +366,7 @@ export default function AddExpenseScreen() {
                         />
                         <TextInput
                             placeholder="Amount💵"
+                            placeholderTextColor="#050505ff"
                             keyboardType="numeric"
                             style={[styles.input, styles.amountInput]}
                             value={amount}
@@ -419,8 +452,18 @@ export default function AddExpenseScreen() {
                         </View>
                     )}
 
-                    <TouchableOpacity style={[styles.addButton, saving && { opacity: 0.7 }]} onPress={submitExpense} disabled={saving}>
-                        <Text style={styles.addButtonText}>{saving ? "Saving..." : ((route?.params?.prefill || prefillQuery) ? "Edit Expense" : "➕ Add Expense")}</Text>
+                    <TouchableOpacity
+                        style={[
+                            styles.addButton,
+                            type === "credit" ? { backgroundColor: "#10b981" } : { backgroundColor: "#ef4444" },
+                            saving && { opacity: 0.7 }
+                        ]}
+                        onPress={submitExpense}
+                        disabled={saving}
+                    >
+                        <Text style={styles.addButtonText}>
+                            {saving ? "Saving..." : ((route?.params?.prefill || prefillQuery) ? "Edit Entry" : (type === "credit" ? "➕ Add Income" : "➕ Add Expense"))}
+                        </Text>
                     </TouchableOpacity>
                 </View>
 
@@ -681,5 +724,37 @@ const styles = StyleSheet.create({
     prefillText: {
         color: "#00796b",
         fontWeight: "500",
+    },
+    typeSelectorRow: {
+        flexDirection: "row",
+        gap: 10,
+        marginBottom: 14,
+    },
+    typeButton: {
+        flex: 1,
+        paddingVertical: 12,
+        borderRadius: 12,
+        alignItems: "center",
+        justifyContent: "center",
+        borderWidth: 1,
+    },
+    typeButtonInactive: {
+        backgroundColor: "#f3f4f6",
+        borderColor: "#e5e7eb",
+    },
+    typeButtonDebitActive: {
+        backgroundColor: "#fee2e2",
+        borderColor: "#fca5a5",
+    },
+    typeButtonCreditActive: {
+        backgroundColor: "#d1fae5",
+        borderColor: "#6ee7b7",
+    },
+    typeButtonText: {
+        fontWeight: "700",
+        fontSize: 14,
+    },
+    typeButtonTextActive: {
+        color: "#111827",
     },
 });

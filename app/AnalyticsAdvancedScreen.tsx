@@ -24,6 +24,7 @@ import {
 import { G, Path, Svg, Text as SvgText } from "react-native-svg";
 import { useAuth } from "./AuthProvider";
 import { db } from "./firebase";
+import { formatIndianCurrency } from "./utils/format";
 // Date picker
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -393,7 +394,7 @@ export default function AnalyticsAdvancedScreen() {
                     <View style={{ height: 160, justifyContent: "flex-end", width: 56 }}>
                         {showValue ? (
                             <Text style={{ position: "absolute", top: -18, left: 0, right: 0, textAlign: "center", fontWeight: "700", color: "#0f172a" }}>
-                                ₹{Math.round(m.value)}
+                                ₹{formatIndianCurrency(m.value, 0)}
                             </Text>
                         ) : null}
                         <Animated.View
@@ -456,7 +457,7 @@ export default function AnalyticsAdvancedScreen() {
                         Total
                     </SvgText>
                     <SvgText x={radius} y={radius + 18} textAnchor="middle" fontWeight="800" fontSize="12" fill="#059669">
-                        ₹{Math.round(total)}
+                        ₹{formatIndianCurrency(total, 0)}
                     </SvgText>
                 </G>
             </Svg>
@@ -487,14 +488,14 @@ export default function AnalyticsAdvancedScreen() {
                 return m === selectedFilter.key;
             });
             const total = list.reduce((s, x) => s + x.amount, 0);
-            return `Month: ${selectedFilter.key} — Total ₹${total.toFixed(2)}`;
+            return `Month: ${selectedFilter.key} — Total ₹${formatIndianCurrency(total, 2)}`;
         }
         if (selectedFilter.type === "week") {
             const wkStart = new Date(selectedFilter.key! + "T00:00:00");
             const wkEnd = new Date(wkStart.getTime() + 7 * 24 * 3600 * 1000 - 1);
             const list = source.filter((e) => e.date >= wkStart && e.date <= wkEnd);
             const total = list.reduce((s, x) => s + x.amount, 0);
-            return `Week start: ${selectedFilter.key} — Total ₹${total.toFixed(2)}`;
+            return `Week start: ${selectedFilter.key} — Total ₹${formatIndianCurrency(total, 2)}`;
         }
         return "Drill";
     }, [selectedFilter, filteredExpenses, expenses]);
@@ -515,7 +516,7 @@ export default function AnalyticsAdvancedScreen() {
                     <Text style={[s.subtitle, { marginRight: 8 }]}>Pie view</Text>
                     <Switch value={usePieForBoards} onValueChange={setUsePieForBoards} />
                     <View style={{ marginLeft: 12, alignItems: "flex-end" }}>
-                        <Text style={s.subtitle}>Total (range) ₹{totalRange.toFixed(2)}</Text>
+                        <Text style={s.subtitle}>Total (range) ₹{formatIndianCurrency(totalRange, 2)}</Text>
                         <Text style={{ color: "#9ca3af", fontSize: 12 }}>{startDate.toISOString().slice(0, 10)} → {endDate.toISOString().slice(0, 10)}</Text>
                     </View>
                 </View>
@@ -580,7 +581,7 @@ export default function AnalyticsAdvancedScreen() {
                                 {monthsLast12.map((m) => (
                                     <TouchableOpacity key={m.key} onPress={() => { setSelectedFilter({ type: "month", key: m.key }); setDrillOpen(true); }} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 6 }}>
                                         <Text style={{ fontWeight: "700" }}>{m.label}</Text>
-                                        <Text style={{ color: "#6b7280" }}>₹{m.value.toFixed(0)}</Text>
+                                        <Text style={{ color: "#6b7280" }}>₹{formatIndianCurrency(m.value, 0)}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
@@ -616,7 +617,7 @@ export default function AnalyticsAdvancedScreen() {
                                 {weeksLast8.map((w) => (
                                     <TouchableOpacity key={w.key} onPress={() => { setSelectedFilter({ type: "week", key: w.key }); setDrillOpen(true); }} style={{ flexDirection: "row", justifyContent: "space-between", paddingVertical: 6 }}>
                                         <Text style={{ fontWeight: "700" }}>{w.label}</Text>
-                                        <Text style={{ color: "#6b7280" }}>₹{w.value.toFixed(0)}</Text>
+                                        <Text style={{ color: "#6b7280" }}>₹{formatIndianCurrency(w.value, 0)}</Text>
                                     </TouchableOpacity>
                                 ))}
                             </View>
@@ -661,7 +662,7 @@ export default function AnalyticsAdvancedScreen() {
                                     <View style={{ width: 10, height: 10, backgroundColor: COLORS[i % COLORS.length], borderRadius: 4, marginRight: 8 }} />
                                     <View style={{ flex: 1 }}>
                                         <Text style={{ fontWeight: "700" }}>{t.key}</Text>
-                                        <Text style={{ color: "#6b7280" }}>₹{t.value.toFixed(0)}</Text>
+                                        <Text style={{ color: "#6b7280" }}>₹{formatIndianCurrency(t.value, 0)}</Text>
                                     </View>
                                 </TouchableOpacity>
                             ))}
@@ -676,7 +677,7 @@ export default function AnalyticsAdvancedScreen() {
                         <TouchableOpacity key={r.id} onPress={() => setDetailExpense(r)}>
                             <View style={[s.rowCard, { marginBottom: 8 }]}>
                                 <View style={{ width: 100 }}>
-                                    <Text style={{ fontWeight: "900" }}>₹{r.amount.toFixed(2)}</Text>
+                                    <Text style={{ fontWeight: "900" }}>₹{formatIndianCurrency(r.amount, 2)}</Text>
                                     <Text style={{ color: "#6b7280", fontSize: 12 }}>{r.date.toLocaleDateString()}</Text>
                                 </View>
                                 <View style={{ flex: 1 }}>
@@ -739,7 +740,7 @@ export default function AnalyticsAdvancedScreen() {
                                     <TouchableOpacity onPress={() => setDetailExpense(item)}>
                                         <View style={s.rowCard}>
                                             <View style={{ width: 100 }}>
-                                                <Text style={{ fontWeight: "900" }}>₹{item.amount.toFixed(2)}</Text>
+                                                <Text style={{ fontWeight: "900" }}>₹{formatIndianCurrency(item.amount, 2)}</Text>
                                                 <Text style={{ color: "#6b7280", fontSize: 12 }}>{item.date.toLocaleDateString()}</Text>
                                             </View>
                                             <View style={{ flex: 1 }}>
@@ -788,7 +789,7 @@ export default function AnalyticsAdvancedScreen() {
                                 <View style={s.detailCard}>
                                     {detailExpense && (
                                         <>
-                                            <Text style={{ fontWeight: "900", fontSize: 20 }}>₹{detailExpense.amount.toFixed(2)}</Text>
+                                            <Text style={{ fontWeight: "900", fontSize: 20 }}>₹{formatIndianCurrency(detailExpense.amount, 2)}</Text>
                                             <Text style={{ color: "#6b7280" }}>{detailExpense.date.toLocaleString()}</Text>
                                             <Text style={{ marginTop: 12, fontWeight: "700" }}>Description</Text>
                                             <Text style={{ marginTop: 6 }}>{detailExpense.description}</Text>
